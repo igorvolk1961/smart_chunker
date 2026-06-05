@@ -1,5 +1,5 @@
 """
-Setup script for SmartChanker
+Setup script for SmartChunker
 """
 
 from setuptools import setup, find_packages
@@ -11,7 +11,7 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
     requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
 
 setup(
-    name="smart-chanker",
+    name="smart-chunker",
     version="1.0.0",
     author="Your Name",
     author_email="your.email@example.com",

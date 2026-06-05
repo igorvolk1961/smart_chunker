@@ -1,5 +1,5 @@
 """
-Модуль для конвертации JSON-файлов SmartChanker в LangChain Document объекты для RAGAS.
+Модуль для конвертации JSON-файлов SmartChunker в LangChain Document объекты для RAGAS.
 
 Использует выходные файлы:
 - xxx_hierarchical.json - файл с результатами чанкинга
@@ -27,7 +27,7 @@ except ImportError:
 
 
 class RagasConverter:
-    """Конвертер для преобразования JSON SmartChanker в LangChain Document для RAGAS"""
+    """Конвертер для преобразования JSON SmartChunker в LangChain Document для RAGAS"""
     
     def __init__(self):
         """

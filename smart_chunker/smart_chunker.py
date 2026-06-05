@@ -1,5 +1,5 @@
 """
-SmartChanker - класс для обработки текстовых файлов
+SmartChunker - класс для обработки текстовых файлов
 """
 
 import os
@@ -33,14 +33,14 @@ from .numbering_restorer import NumberingRestorer
 from .table_processor import TableProcessor, ParsedDocxTable, TableExtractionError, TableConversionError
 
 
-class SmartChanker:
+class SmartChunker:
     """
     Класс для обработки текстовых файлов с использованием различных инструментов
     """
     
     def __init__(self, config_path: Optional[str] = None):
         """
-        Инициализация SmartChanker
+        Инициализация SmartChunker
         
         Args:
             config_path: Путь к конфигурационному файлу
@@ -111,7 +111,7 @@ class SmartChanker:
         Returns:
             Настроенный логгер
         """
-        logger = logging.getLogger('SmartChanker')
+        logger = logging.getLogger('SmartChunker')
         
         # Получаем уровень логирования из конфигурации или переменной окружения
         log_level_str = self.config.get("logging", {}).get("level", "INFO")

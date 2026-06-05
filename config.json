@@ -4,10 +4,10 @@
     "max_table_name_paragraphs": 5
   },
   "output": {
-    "save_docx2python_text": false,
+    "save_docx2python_text": true,
     "save_list_positions": false,
     "save_table_json": false,
-    "include_section_content": false
+    "include_section_content": true
   },
   "hierarchical_chunking": {
     "enabled": true,
