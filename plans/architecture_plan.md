@@ -46,7 +46,7 @@ smart_chunker/                          # Project root
 │   ├── doc_struct_splitter.py          # Main orchestrator (class: DocStructSplitter)
 │   ├── document_reader.py              # NEW: File I/O, paragraph extraction
 │   ├── hierarchy_parser.py             # (unchanged)
-│   ├── semantic_chunker.py             # (unchanged)
+│   ├── section_chunker.py              # Renamed from semantic_chunker.py
 │   ├── chunking_orchestrator.py        # Renamed from hierarchical_chunker.py
 │   ├── numbering_restorer.py           # (unchanged, consolidated)
 │   ├── table_processor.py              # (unchanged)
@@ -65,7 +65,7 @@ smart_chunker/                          # Project root
 |---------|-------|--------|
 | `smart_chunker/smart_chunker.py` | `src/doc_struct_splitter.py` | File matches class `DocStructSplitter` |
 | `smart_chunker/hierarchical_chunker.py` | `src/chunking_orchestrator.py` | It's an orchestrator, not a chunker |
-| `smart_chunker/ragas_converter.py` | `src/langchain_adapter.py` | Generic LangChain, not just RAGAS |
+| `smart_chunker/semantic_chunker.py` | `src/section_chunker.py` | Misleading name — it's a section-based chunker, not semantic splitter |
 
 ## 4. LangChain TextSplitter API
 
@@ -119,7 +119,7 @@ tests/
 ├── conftest.py              # Shared fixtures (sample texts, configs)
 ├── test_numbering_restorer.py   # Unit: numbering restoration logic
 ├── test_hierarchy_parser.py     # Unit: hierarchy parsing
-├── test_semantic_chunker.py     # Unit: semantic chunk generation
+├── test_section_chunker.py      # Unit: section chunk generation
 ├── test_table_processor.py      # Unit: table extraction/conversion
 ├── test_chunking_orchestrator.py # Unit: orchestration logic
 ├── test_doc_struct_splitter.py  # Integration: full pipeline via DocStructSplitter
@@ -131,7 +131,7 @@ tests/
 
 | Category | Scope | What it tests |
 |----------|-------|---------------|
-| **Unit tests** | Each module in isolation | `NumberingRestorer.restore_numbering_in_paragraphs()`, `HierarchyParser.parse_hierarchy()`, `SemanticChunker.generate_chunks()`, `TableProcessor.extract_tables()` |
+| **Unit tests** | Each module in isolation | `NumberingRestorer.restore_numbering_in_paragraphs()`, `HierarchyParser.parse_hierarchy()`, `SectionChunker.generate_chunks()`, `TableProcessor.extract_tables()` |
 | **Integration tests** | `DocStructSplitter` pipeline | Full end-to-end: file → paragraphs → hierarchy → chunks → output |
 | **LangChain compliance** | `langchain_adapter.py` | `split_text()` returns `List[str]`, `split_documents()` returns `List[Document]`, parameters match `TextSplitter` signature |
 
@@ -145,7 +145,7 @@ tests/
 - Input: flat text with numbered lines → output: list of `SectionNode` with correct `level`, `parent`, `children`
 - Edge cases: missing levels (1 → 1.1 → 1.1.1 → 1.3), no numbering, mixed numbering styles
 
-**test_semantic_chunker.py:**
+**test_section_chunker.py:**
 - Input: `SectionNode` list + `target_level` → output: `Chunk` list with correct sizes and overlap
 - Edge cases: empty sections, single huge section, sections smaller than `chunk_size`
 

@@ -11,6 +11,7 @@ from datetime import datetime
 
 if TYPE_CHECKING:
     from .hierarchy_parser import SectionNode
+    from langchain_core.documents import Document
 
 # Импорт внутренних модулей
 from .document_reader import DocumentReader, DOCX2PYTHON_AVAILABLE, UNSTRUCTURED_AVAILABLE
@@ -1044,7 +1045,7 @@ class DocStructSplitter(TextSplitter):
         from .hierarchy_parser import HierarchyParser
         
         parser = HierarchyParser()
-        sections = parser.parse_hierarchy(text)
+        parser.parse_hierarchy(text)
         return parser.get_sections_by_level(level)
 
     # ===== LANGCHAIN TEXTSPLITTER INTERFACE =====
@@ -1162,7 +1163,6 @@ class DocStructSplitter(TextSplitter):
         # 1) Extract flat text (selects processing method by file format)
         file_result = self._process_single_file(file_path)
         text_without_tables = file_result.get("text_without_tables", "")
-        tool_used = file_result.get("tool_used", "")
 
         # 1.5) Extract table of contents
         toc_text = file_result.get("toc_text", "")
@@ -1479,7 +1479,6 @@ class DocStructSplitter(TextSplitter):
         # Используем paragraphs_with_indices для извлечения названия, но paragraphs для поиска раздела.
         if paragraphs_with_indices is None:
             paragraphs_with_indices = paragraphs
-        paragraphs_for_name = paragraphs_with_indices
         
         # Строим словарь параграф -> раздел один раз перед циклом
         paragraph_to_section = self._build_paragraph_to_section_map(section_nodes)

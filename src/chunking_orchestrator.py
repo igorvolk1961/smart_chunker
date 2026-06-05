@@ -142,13 +142,6 @@ class ChunkingOrchestrator:
         Returns:
             Словарь с данными чанка
         """
-        # Дополнительные флаги таблиц в метаданных
-        contains_table = False
-        table_ids: List[str] = []
-        if hasattr(chunk.metadata, 'section_path'):
-            # признак по содержимому можно также вычислять заранее; оставим просто передачу
-            pass
-        
         metadata_dict = {
             'chunk_id': chunk.metadata.chunk_id,
             'chunk_number': chunk.metadata.chunk_number,

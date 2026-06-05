@@ -391,7 +391,6 @@ class TableProcessor:
             analysis = self.analyze_docx_table_structure(docx_table)
             row_attribute_rows = analysis["row_attribute_rows"]
             column_attribute_columns = analysis["column_attribute_columns"]
-            global_attrs_by_row = analysis["global_attrs_by_row"]
 
             # Определяем названия колонок из заголовков
             # Для простых таблиц (без объединенных ячеек) просто берем первую строку как заголовки
@@ -1102,15 +1101,6 @@ class TableProcessor:
             return [chunk_content]
         
         chunks: List[str] = []
-        table_name_overhead = len(f'{{"table_name": "{table_name}", "items": []}}')
-        
-        # Базовый размер структуры item (без facts)
-        base_item_structure = {
-            "item_name": item_name,
-            "row": row,
-            "facts": []
-        }
-        base_item_size = len(json.dumps(base_item_structure, ensure_ascii=False))
         
         start_idx = 0
         
@@ -1118,7 +1108,6 @@ class TableProcessor:
             # Пробуем добавить facts пока не превысим лимит
             end_idx = start_idx
             current_facts = []
-            current_size = table_name_overhead + base_item_size
             
             # Добавляем facts пока помещаются
             while end_idx < len(facts):
@@ -1138,7 +1127,6 @@ class TableProcessor:
                     break
                 
                 current_facts = test_facts
-                current_size = test_size
                 end_idx += 1
             
             # Если не удалось добавить ни одного fact, добавляем хотя бы один
