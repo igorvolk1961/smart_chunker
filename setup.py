@@ -13,12 +13,13 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
 setup(
     name="smart-chunker",
     version="1.0.0",
-    author="Your Name",
-    author_email="your.email@example.com",
-    description="Интеллектуальный инструмент для обработки и чанкинга документов с поддержкой многоуровневой иерархии",
+    author="Игорь Волков",
+    author_email="igorvolk1961@gmail.com",
+    description="Интеллектуальный инструмент для чанкинга документов с поддержкой многоуровневой иерархии",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    packages=find_packages(),
+    packages=find_packages(where="src"),
+    package_dir={"": "src"},
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",

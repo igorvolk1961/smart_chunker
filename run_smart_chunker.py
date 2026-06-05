@@ -5,7 +5,7 @@
 import json
 import os
 from datetime import datetime
-from smart_chunker.smart_chunker import SmartChunker
+from src.doc_struct_splitter import DocStructSplitter
 
 def main():
     """Основная функция запуска SmartChunker"""
@@ -25,13 +25,13 @@ def main():
     print("-" * 50)
     
     try:
-        # Инициализируем SmartChunker
-        chunker = SmartChunker(config_file)
+        # Инициализируем DocStructSplitter
+        chunker = DocStructSplitter(log_level="INFO", config_path=config_file)
         input_path = input_folder + "/План строительства моста через реку Лена.docx"
         
-        # Полная обработка папки с сохранением только sections/chunks/metadata
-        print("Начинаем полную обработку файлов (end-to-end)...")
-        result = chunker.run_end_to_end(input_path, output_folder)
+        # Полная обработка файла с сохранением sections/chunks/metadata
+        print("Начинаем полную обработку файла...")
+        result = chunker.process_file(input_path, output_folder)
         
         # Выводим краткую статистику
         print(f"\nОбработка завершена!")

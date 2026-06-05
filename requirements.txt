@@ -7,5 +7,8 @@ pathlib2>=2.3.7
 typing-extensions>=4.0.0
 beautifulsoup4>=4.12.0
 
-# Для работы с RAGAS конвертером
+# Для работы с LangChain адаптером и TextSplitter
 langchain-core>=0.1.0
+langchain-text-splitters>=0.0.1
+# Для тестирования
+pytest>=7.0.0

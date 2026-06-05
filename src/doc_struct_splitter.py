@@ -12,42 +12,61 @@ from datetime import datetime
 if TYPE_CHECKING:
     from .hierarchy_parser import SectionNode
 
-# Импорт инструментов обработки
-try:
-    from docx2python import docx2python
-    DOCX2PYTHON_AVAILABLE = True
-except ImportError:
-    DOCX2PYTHON_AVAILABLE = False
-    logging.warning("Пакет docx2python не установлен")
-
-try:
-    from unstructured.partition.pdf import partition_pdf
-    UNSTRUCTURED_AVAILABLE = True
-except ImportError:
-    UNSTRUCTURED_AVAILABLE = False
-    logging.warning("Пакет unstructured не установлен")
-
-
 # Импорт внутренних модулей
+from .document_reader import DocumentReader, DOCX2PYTHON_AVAILABLE, UNSTRUCTURED_AVAILABLE
 from .numbering_restorer import NumberingRestorer
 from .table_processor import TableProcessor, ParsedDocxTable
 
+# LangChain TextSplitter для совместимости
+try:
+    from langchain_text_splitters import TextSplitter
+    TEXT_SPLITTER_AVAILABLE = True
+except ImportError:
+    TextSplitter = object
+    TEXT_SPLITTER_AVAILABLE = False
 
-class DocStructSplitter:
+
+class DocStructSplitter(TextSplitter):
     """
     Класс для обработки текстовых файлов с использованием различных инструментов
     """
     
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(
+        self,
+        chunk_size: int = 1000,
+        chunk_overlap: int = 200,
+        target_level: int = 3,
+        log_level: Optional[str] = None,
+        config_path: Optional[str] = None,
+        **kwargs
+    ):
         """
         Инициализация DocStructSplitter
         
         Args:
+            chunk_size: Максимальный размер чанка в символах (стандартный LangChain параметр)
+            chunk_overlap: Перекрытие между чанками в символах (стандартный LangChain параметр)
+            target_level: Уровень иерархии для чанкинга
+            log_level: Уровень логирования (None = из env var или конфиг файла)
             config_path: Путь к конфигурационному файлу
+            **kwargs: Дополнительные параметры TextSplitter
         """
+        # Инициализируем TextSplitter с LangChain-совместимыми параметрами
+        super().__init__(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            **kwargs
+        )
         self.config_path = config_path
+        self.target_level = target_level
+        self.log_level = log_level
         # Сначала загружаем конфигурацию (без логгера)
         self.config = self._load_config()
+        # Прокидываем параметры чанкинга в конфиг
+        self.config.setdefault("hierarchical_chunking", {})
+        self.config["hierarchical_chunking"]["enabled"] = True
+        self.config["hierarchical_chunking"]["target_level"] = target_level
+        self.config["hierarchical_chunking"]["max_chunk_size"] = chunk_size
         # Затем настраиваем логгер (используя конфигурацию)
         self.logger = self._setup_logger()
         self.numbering_restorer = NumberingRestorer(self.logger)
@@ -78,6 +97,7 @@ class DocStructSplitter:
                 "format": "json",
                 "save_path": "./output",
                 "save_docx2python_text": False,
+                "save_toc_text": False,
                 "save_list_positions": False,
                 "save_table_json": False,
                 "include_section_content": True  # Включать ли поле content в sections (для уменьшения размера можно установить False)
@@ -108,16 +128,27 @@ class DocStructSplitter:
         """
         Настройка логгера
         
+        Приоритет (по убыванию):
+          1. Параметр конструктора log_level (если не None)
+          2. Переменная окружения SMART_CHANKER_LOG_LEVEL
+          3. Конфиг файл (logging.level)
+          4. Значение по умолчанию "INFO"
+        
         Returns:
             Настроенный логгер
         """
         logger = logging.getLogger('DocStructSplitter')
         
-        # Получаем уровень логирования из конфигурации или переменной окружения
-        log_level_str = self.config.get("logging", {}).get("level", "INFO")
-        # Также проверяем переменную окружения (имеет приоритет)
-        import os
-        log_level_str = os.getenv("SMART_CHANKER_LOG_LEVEL", log_level_str)
+        # Приоритет: параметр конструктора (если задан) > env var > конфиг файл
+        if self.log_level is not None:
+            # Параметр конструктора имеет наивысший приоритет
+            log_level_str = self.log_level
+        else:
+            # env var имеет приоритет над конфиг файлом
+            log_level_str = os.getenv("SMART_CHANKER_LOG_LEVEL")
+            if log_level_str is None:
+                # конфиг файл — наименьший приоритет
+                log_level_str = self.config.get("logging", {}).get("level", "INFO")
         
         # Преобразуем строку в уровень логирования
         log_level_map = {
@@ -207,30 +238,16 @@ class DocStructSplitter:
     
     def _get_files_to_process(self, folder_path: str) -> List[str]:
         """
-        Получение списка файлов для обработки (DOCX/DOC, TXT, MD, PDF)
-        
+        Получение списка файлов для обработки (DOCX/DOC, TXT, MD, PDF).
+        Делегирует DocumentReader.
+
         Args:
             folder_path: Путь к папке
-            
+
         Returns:
             Список путей к файлам
         """
-        supported_extensions = ['.docx', '.doc', '.txt', '.md', '.pdf']
-        files = []
-        
-        for root, dirs, filenames in os.walk(folder_path):
-            for filename in filenames:
-                # Пропускаем временные файлы, начинающиеся с ~
-                if filename.startswith('~'):
-                    continue
-                
-                file_path = os.path.join(root, filename)
-                file_ext = Path(file_path).suffix.lower()
-                
-                if file_ext in supported_extensions:
-                    files.append(file_path)
-        
-        return files
+        return DocumentReader.get_files_to_process(folder_path)
     
     def _process_single_file(self, file_path: str) -> Dict[str, Any]:
         """
@@ -304,20 +321,17 @@ class DocStructSplitter:
         """
         Обработка плоского текстового файла (TXT, MD):
         чтение файла с определением кодировки и разбиение на параграфы
-        
+
         Args:
             file_path: Путь к файлу
-            
+
         Returns:
             Результат обработки в формате, совместимом с _process_with_docx2python
         """
         self.logger.info(f"Обрабатываем файл как плоский текст: {file_path}")
-        
-        # Определяем кодировку и читаем файл
-        text_content = self._read_text_file_with_encoding(file_path)
-        
-        # Очищаем непечатные символы и знаки вопроса в начале строк
-        text_content = self._clean_non_printable_chars(text_content)
+
+        # Читаем через DocumentReader (автоопределение кодировки + очистка)
+        text_content = DocumentReader.read_plain_text(file_path)
         
         # Разбиваем на параграфы (по строкам)
         lines = text_content.split('\n')
@@ -357,25 +371,21 @@ class DocStructSplitter:
         """
         Обработка PDF файла с использованием unstructured:
         простое извлечение текста без сохранения структуры таблиц
-        
+
         Args:
             file_path: Путь к PDF файлу
-            
+
         Returns:
             Результат обработки в формате, совместимом с _process_with_docx2python
         """
         if not UNSTRUCTURED_AVAILABLE:
             raise ImportError("Для обработки PDF требуется пакет unstructured")
-        
+
         self.logger.info(f"Обрабатываем PDF файл через unstructured: {file_path}")
-        
+
         try:
-            # Извлекаем элементы из PDF (простой вариант - только текст)
-            elements = partition_pdf(
-                filename=file_path,
-                strategy="fast",  # Быстрая стратегия без OCR
-                infer_table_structure=False,  # Не извлекаем таблицы в простом варианте
-            )
+            # Извлекаем элементы из PDF через DocumentReader
+            elements = DocumentReader.read_pdf_elements(file_path, strategy="fast")
             
             # Объединяем все текстовые элементы в параграфы
             paragraphs = []
@@ -417,88 +427,8 @@ class DocStructSplitter:
             self.logger.error(f"Ошибка при обработке PDF файла {file_path}: {e}")
             raise ValueError(f"Не удалось обработать PDF файл: {e}") from e
     
-    def _read_text_file_with_encoding(self, file_path: str) -> str:
-        """
-        Читает текстовый файл с автоматическим определением кодировки
-        
-        Args:
-            file_path: Путь к файлу
-            
-        Returns:
-            Содержимое файла как строка
-        """
-        # Список кодировок для попытки чтения
-        # utf-8-sig автоматически удаляет BOM при чтении
-        encodings = ['utf-8-sig', 'utf-8', 'cp1251', 'windows-1251', 'latin-1', 'iso-8859-1']
-        
-        for encoding in encodings:
-            try:
-                with open(file_path, 'r', encoding=encoding) as f:
-                    content = f.read()
-                self.logger.debug(f"Файл {file_path} успешно прочитан с кодировкой {encoding}")
-                return content
-            except UnicodeDecodeError:
-                continue
-            except Exception as e:
-                self.logger.warning(f"Ошибка при чтении файла {file_path} с кодировкой {encoding}: {e}")
-                continue
-        
-        # Если все попытки не удались, пробуем с ошибками
-        try:
-            with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                content = f.read()
-            self.logger.warning(f"Файл {file_path} прочитан с заменой неверных символов (UTF-8)")
-            return content
-        except Exception as e:
-            raise ValueError(f"Не удалось прочитать файл {file_path}: {e}") from e
-    
-    def _clean_non_printable_chars(self, text: str) -> str:
-        """
-        Очищает текст от непечатных символов, которые могут мешать распознаванию нумерации.
-        Также удаляет знаки вопроса "?" в начале строк (результат замены непечатных символов).
-        
-        Args:
-            text: Исходный текст
-            
-        Returns:
-            Очищенный текст
-        """
-        import unicodedata
-        
-        # Удаляем BOM из начала текста
-        text = text.lstrip('\ufeff')
-        
-        # Разбиваем на строки для обработки
-        lines = text.split('\n')
-        cleaned_lines = []
-        
-        for line in lines:
-            # Удаляем непечатные символы из строки (кроме пробелов и табуляции)
-            # Сохраняем пробелы и табуляцию для правильного распознавания отступов
-            result = []
-            for char in line:
-                category = unicodedata.category(char)
-                # Пропускаем обычные печатные символы
-                if category[0] in ['L', 'N', 'P', 'S', 'Z']:  # Letter, Number, Punctuation, Symbol, Separator
-                    result.append(char)
-                # Пропускаем табуляцию и переносы строк
-                elif char in ['\t', '\n', '\r']:
-                    result.append(char)
-                # Пропускаем обычные пробелы
-                elif char == ' ':
-                    result.append(char)
-                # Все остальное (непечатные символы) пропускаем
-                # else: не добавляем
-            
-            cleaned_line = ''.join(result)
-            
-            # Удаляем знаки вопроса "?" в начале строки (результат замены непечатных символов)
-            # Используем lstrip для удаления всех "?" в начале строки
-            cleaned_line = cleaned_line.lstrip('?')
-            
-            cleaned_lines.append(cleaned_line)
-        
-        return '\n'.join(cleaned_lines)
+    # NOTE: _read_text_file_with_encoding и _clean_non_printable_chars
+    # вынесены в DocumentReader (document_reader.py)
     
     def _extract_table_of_contents_from_paragraphs(self, paragraphs: List[Dict]) -> str:
         """
@@ -715,8 +645,8 @@ class DocStructSplitter:
         restored_paragraphs_list: List[str] = []
         tables_data: List[Dict] = []
         
-        # Извлекаем параграфы из docx2python
-        doc = docx2python(file_path)
+        # Извлекаем параграфы из docx2python через DocumentReader
+        doc = DocumentReader.read_docx_raw(file_path)
         docx2python_paragraphs = self._extract_all_paragraphs(doc.document_pars)
         
         self.logger.debug(f"_extract_and_process: Всего параграфов из docx2python: {len(docx2python_paragraphs)}")
@@ -881,8 +811,8 @@ class DocStructSplitter:
         paragraphs_with_indices: List[Dict] = []
         tables_info: List[Dict] = []
         
-        # Извлекаем параграфы из docx2python
-        doc = docx2python(file_path)
+        # Извлекаем параграфы из docx2python через DocumentReader
+        doc = DocumentReader.read_docx_raw(file_path)
         docx2python_paragraphs = self._extract_all_paragraphs(doc.document_pars)
         
         self.logger.debug(f"_extract_paragraphs: Всего параграфов из docx2python: {len(docx2python_paragraphs)}")
@@ -1017,218 +947,6 @@ class DocStructSplitter:
         
         return paragraphs
     
-    def _restore_numbering_in_paragraphs(self, paragraphs):
-        """
-        Восстанавливает нумерацию в параграфах с полной иерархией
-        
-        Args:
-            paragraphs: список параграфов из docx2python
-        
-        Returns:
-            str: текст с восстановленной нумерацией
-        """
-        import re
-        
-        restored_paragraphs = []
-        hierarchy_tracker = {}  # Отслеживаем текущие номера для каждого уровня
-        current_section_path: List[int] = []  # Текущая секция из заголовков 1., 1.2., 1.2.3.
-        child_counters: Dict[tuple, int] = {}  # Счетчик дочерних заголовков для каждого пути
-        last_root: Optional[int] = None       # Последний зафиксированный корневой номер (верхний уровень)
-        
-        # Стек для отслеживания текущей иерархии
-        hierarchy_stack = []
-        # Счетчики для каждого уровня
-        level_counters = {}
-        
-        for i, paragraph in enumerate(paragraphs):
-            # Проверяем, что это объект Par
-            if not hasattr(paragraph, 'runs'):
-                continue
-                
-            # Извлекаем текст параграфа
-            paragraph_text = ""
-            list_position = None
-            action_log = "keep"  # чем закончилась обработка параграфа
-            
-            # Получаем текст и list_position из runs
-            for run in paragraph.runs:
-                paragraph_text += run.text
-            
-            # Получаем list_position
-            if hasattr(paragraph, 'list_position'):
-                list_position = paragraph.list_position
-
-            # Логируем только важную информацию для диагностики
-            if list_position and len(list_position) >= 2 and list_position[1]:
-                self.logger.debug(f"[docx2python:num] idx={i} list_position={list_position} text='{paragraph_text[:50]}...'")
-            
-            # Обнаружение явного заголовка раздела вида "1.", "1.2.", "1.2.3."
-            explicit_header = re.match(r'^\s*(\d+(?:\.\d+)*)\.(\s*)(.*)$', paragraph_text)
-            if explicit_header:
-                heading_style = getattr(paragraph, 'style', '')
-                header_num_str = explicit_header.group(1)
-                after_space = explicit_header.group(2)
-                after_text = explicit_header.group(3)
-                try:
-                    header_path = [int(x) for x in header_num_str.split('.')]
-                except Exception:
-                    header_path = []
-
-                # Если это повтор заголовка на том же пути — нумеруем как дочерний (без зависимости от стиля)
-                if header_path and current_section_path and header_path == current_section_path:
-                    key = tuple(current_section_path)
-                    next_idx = child_counters.get(key, 0) + 1
-                    child_counters[key] = next_idx
-                    new_path = current_section_path + [next_idx]
-                    new_num = '.'.join(str(x) for x in new_path) + '.'
-                    restored_paragraphs.append(f"{new_num}{after_space}{after_text}")
-                    action_log = f"replace: explicit->child {new_num}"
-                    continue
-
-                # Иначе считаем это установкой текущего пути секции
-                if header_path:
-                    current_section_path = header_path
-                    # Зафиксируем текущий корневой номер
-                    try:
-                        last_root = header_path[0]
-                    except Exception:
-                        pass
-                    # Инициализируем счетчик для этого пути
-                    child_counters.setdefault(tuple(current_section_path), 0)
-                restored_paragraphs.append(paragraph_text)
-                action_log = "keep: explicit header"
-                continue
-
-            # Восстанавливаем нумерацию на основе list_position
-            if list_position and len(list_position) >= 2 and list_position[1]:
-                numbering_levels = list_position[1]
-                
-                # Проверяем, что это пронумерованный список
-                simple_list_match = re.match(r'^(\s*)(\d+)\)\s*(.*)$', paragraph_text)
-                if simple_list_match:
-                    indent = simple_list_match.group(1)
-                    n_local = int(simple_list_match.group(2))
-                    rest = simple_list_match.group(3)
-                    
-                    try:
-                        # Определяем уровень иерархии по отступам (табы и пробелы)
-                        # Считаем табы как 4 пробела каждый
-                        tab_count = indent.count('\t')
-                        space_count = len(indent) - tab_count
-                        level = tab_count + (space_count // 4)
-                        
-                        # Обновляем счетчики для текущего уровня
-                        if level not in level_counters:
-                            level_counters[level] = 0
-                        level_counters[level] = n_local
-                        
-                        # Обрезаем стек до текущего уровня
-                        hierarchy_stack = hierarchy_stack[:level]
-                        
-                        # Строим номер на основе текущей иерархии
-                        if level == 0:
-                            # Корневой уровень
-                            new_num = f"{n_local}."
-                            hierarchy_stack = [n_local]
-                        else:
-                            # Подчиненный уровень
-                            if hierarchy_stack:
-                                # Добавляем к родительскому пути
-                                parent_path = hierarchy_stack.copy()
-                                parent_path.append(n_local)
-                                new_num = '.'.join(str(x) for x in parent_path) + '.'
-                                hierarchy_stack = parent_path
-                            else:
-                                # Если нет родителя, создаем новый корень
-                                new_num = f"{n_local}."
-                                hierarchy_stack = [n_local]
-                        
-                        restored_paragraphs.append(f"{indent}{new_num} {rest}")
-                        action_log = f"replace: level {level} -> {new_num}"
-                        continue
-                            
-                    except Exception as e:
-                        self.logger.warning(f"Ошибка при обработке нумерации: {e}")
-                        restored_paragraphs.append(paragraph_text)
-                        action_log = "keep: error"
-                        continue
-                else:
-                    # Если это не пронумерованный список, оставляем как есть
-                    restored_paragraphs.append(paragraph_text)
-                    action_log = "keep: not numbered"
-            else:
-                # Если нет list_position, проверяем на маркеры списков
-                if paragraph_text.strip().startswith('--'):
-                    # Заменяем -- на • для маркеров списков
-                    new_text = paragraph_text.replace('--', '•', 1)
-                    restored_paragraphs.append(new_text)
-                    action_log = "replace: bullet -> •"
-                else:
-                    # Оставляем как есть
-                    restored_paragraphs.append(paragraph_text)
-                    action_log = "keep: plain"
-
-            # Итог по абзацу (только для отладки)
-            if action_log.startswith("replace"):
-                self.logger.debug(f"[num-debug] idx={i} action={action_log}")
-        
-        return "\n".join(restored_paragraphs)
-    
-    def _build_hierarchical_numbering(self, list_position, hierarchy_tracker):
-        """
-        Строит полную иерархическую нумерацию на основе list_position
-        
-        Args:
-            list_position: кортеж (style_id, numbering_levels) из docx2python
-            hierarchy_tracker: словарь для отслеживания текущих номеров по уровням
-        
-        Returns:
-            str: полная иерархическая нумерация (например, "1.1.2.")
-        """
-        style_id, numbering_levels = list_position
-        
-        
-        # Определяем уровень иерархии по style_id
-        # Поддерживаем произвольную глубину иерархии
-        if style_id and style_id.isdigit():
-            style_id_num = int(style_id)
-            
-            # Для style_id >= 32 - это уровни иерархии (32=1, 33=2, 34=3, 35=4, и т.д.)
-            if style_id_num >= 32:
-                hierarchy_level = style_id_num - 31
-            else:
-                # Для style_id < 32 - это не уровни иерархии, а маркеры списков
-                if numbering_levels:
-                    return str(numbering_levels[0]) + "."
-                else:
-                    return "1."
-        else:
-            # Если style_id не число, возвращаем простую нумерацию
-            if numbering_levels:
-                return str(numbering_levels[0]) + "."
-            else:
-                return "1."
-        
-        # Инициализируем трекер для всех уровней до текущего
-        for level in range(1, hierarchy_level + 1):
-            if level not in hierarchy_tracker:
-                hierarchy_tracker[level] = 0
-        
-        # Сбрасываем счетчики для более глубоких уровней
-        for level in range(hierarchy_level + 1, max(hierarchy_tracker.keys(), default=0) + 1):
-            hierarchy_tracker[level] = 0
-        
-        # Устанавливаем номер для текущего уровня из numbering_levels
-        if numbering_levels:
-            hierarchy_tracker[hierarchy_level] = numbering_levels[0]
-        
-        # Строим полную нумерацию
-        full_numbering_parts = []
-        for level in range(1, hierarchy_level + 1):
-            full_numbering_parts.append(str(hierarchy_tracker[level]))
-        
-        return ".".join(full_numbering_parts) + "."
-    
     # ===== ИЕРАРХИЧЕСКИЙ ЧАНКИНГ =====
     
     def parse_hierarchy(self, text: str) -> List[Any]:
@@ -1329,90 +1047,156 @@ class DocStructSplitter:
         sections = parser.parse_hierarchy(text)
         return parser.get_sections_by_level(level)
 
-    # ===== END-TO-END PIPELINE =====
-    def run_end_to_end(self, input_path: str, output_dir: Optional[str] = None) -> Dict[str, Any]:
+    # ===== LANGCHAIN TEXTSPLITTER INTERFACE =====
+
+    def split_text(self, text: str) -> List[str]:
         """
-        Полная обработка одного исходного файла: DOC/DOCX/TXT/MD/PDF -> плоский текст -> иерархический чанкинг
-        Возвращает только итоговую структуру с sections/chunks/metadata без промежуточных полей.
+        LangChain TextSplitter interface.
+        Splits plain text into chunks using the hierarchical + semantic chunking pipeline.
+
+        This works for plain text (TXT/MD). For DOCX files with table extraction,
+        use split_documents() with metadata['source'] pointing to the file path.
+
+        Args:
+            text: Plain text to split.
+
+        Returns:
+            List of chunk text strings.
         """
-        # 1) Извлечь плоский текст (выбирает метод обработки по формату файла)
-        file_result = self._process_single_file(input_path)
+        hconf = self.config.get("hierarchical_chunking", {})
+        target_level = hconf.get("target_level", 3)
+        max_chunk_size = hconf.get("max_chunk_size", 1000)
+
+        # Parse hierarchy from flat text
+        from .hierarchy_parser import HierarchyParser
+        parser = HierarchyParser()
+        section_nodes = parser.parse_hierarchy(text)
+
+        # Generate semantic chunks
+        from .semantic_chunker import SemanticChunker
+        semantic_chunker = SemanticChunker(
+            max_chunk_size=max_chunk_size,
+            chunk_overlap_percent=hconf.get("chunk_overlap_percent_text", 20.0),
+        )
+        chunks = semantic_chunker.generate_chunks(section_nodes, target_level=target_level)
+
+        # Return only chunk texts
+        return [chunk.content for chunk in chunks]
+
+    def split_documents(self, documents: List["Document"]) -> List["Document"]:
+        """
+        LangChain TextSplitter interface.
+        Splits a list of LangChain Document objects into smaller chunk Documents.
+
+        For documents with metadata['source'] pointing to a supported file path
+        (.docx, .doc, .txt, .md, .pdf), uses the full DocStructSplitter pipeline
+        (paragraph extraction, numbering restoration, table detection, hierarchy parsing).
+        Otherwise falls back to split_text() on the document's page_content.
+
+        Args:
+            documents: List of LangChain Document objects.
+
+        Returns:
+            List of chunked LangChain Document objects.
+        """
+        try:
+            from langchain_core.documents import Document as LCDocument
+        except ImportError:
+            # Fallback: use split_text for each document
+            result: List["Document"] = []
+            for doc in documents:
+                chunks = self.split_text(doc.page_content)
+                for chunk_text in chunks:
+                    result.append(
+                        type(doc)(page_content=chunk_text, metadata=dict(doc.metadata))
+                    )
+            return result
+
+        result: List[LCDocument] = []
+        for doc in documents:
+            source = doc.metadata.get("source", "") if doc.metadata else ""
+            if source and Path(source).suffix.lower() in ['.docx', '.doc', '.txt', '.md', '.pdf']:
+                # Use full pipeline for supported file types
+                try:
+                    file_result, _ = self._process_file_to_chunks(source)
+                    for chunk in file_result.get("chunks", []):
+                        chunk_meta = dict(doc.metadata)
+                        chunk_meta.update(chunk.get("metadata", {}))
+                        result.append(
+                            LCDocument(page_content=chunk.get("content", ""), metadata=chunk_meta)
+                        )
+                    # Add table chunks
+                    for tchunk in file_result.get("table_chunks", []):
+                        chunk_meta = dict(doc.metadata)
+                        chunk_meta.update(tchunk.get("metadata", {}))
+                        result.append(
+                            LCDocument(page_content=tchunk.get("content", ""), metadata=chunk_meta)
+                        )
+                except Exception as e:
+                    self.logger.warning(
+                        f"Full pipeline failed for {source}, falling back to split_text: {e}"
+                    )
+                    chunks = self.split_text(doc.page_content)
+                    for chunk_text in chunks:
+                        result.append(
+                            LCDocument(page_content=chunk_text, metadata=dict(doc.metadata))
+                        )
+            else:
+                # Fallback to plain text splitting
+                chunks = self.split_text(doc.page_content)
+                for chunk_text in chunks:
+                    result.append(
+                        LCDocument(page_content=chunk_text, metadata=dict(doc.metadata))
+                    )
+        return result
+
+    def _process_file_to_chunks(self, file_path: str) -> tuple:
+        """
+        Internal: process a single file and return structured result
+        with sections, chunks, toc_chunks, table_chunks, and metadata.
+
+        Returns:
+            Tuple of (result_dict, toc_text) — toc_text отдельно для
+            опционального сохранения в process_file, без включения в JSON.
+        """
+        # 1) Extract flat text (selects processing method by file format)
+        file_result = self._process_single_file(file_path)
         text_without_tables = file_result.get("text_without_tables", "")
         tool_used = file_result.get("tool_used", "")
 
-        # Опционально сохраняем текст без таблиц
-        out_cfg = self.config.get("output", {})
-        if out_cfg.get("save_docx2python_text") and output_dir:
-            try:
-                base_name = Path(input_path).stem
-                # Используем разные суффиксы в зависимости от инструмента
-                if tool_used == "docx2python":
-                    out_file = os.path.join(output_dir, f"{base_name}_docx2python.txt")
-                elif tool_used == "plain_text":
-                    out_file = os.path.join(output_dir, f"{base_name}_plain_text.txt")
-                elif tool_used == "pdf":
-                    out_file = os.path.join(output_dir, f"{base_name}_pdf.txt")
-                else:
-                    out_file = os.path.join(output_dir, f"{base_name}_extracted.txt")
-                with open(out_file, "w", encoding="utf-8") as f:
-                    f.write(text_without_tables or "")
-            except Exception as e:
-                self.logger.warning(f"Не удалось сохранить текст: {e}")
-
-        # 1.5) Извлекаем оглавление из результата обработки
+        # 1.5) Extract table of contents
         toc_text = file_result.get("toc_text", "")
-        if output_dir and toc_text:
-            try:
-                base_name = Path(input_path).stem
-                toc_file = os.path.join(output_dir, f"{base_name}_toc.txt")
-                with open(toc_file, "w", encoding="utf-8") as f:
-                    f.write(toc_text)
-            except Exception as e:
-                self.logger.warning(f"Не удалось сохранить оглавление: {e}")
 
-        # 1.6) Сохраняем параграфы с list_position (опционально, только для DOCX)
-        out_cfg = self.config.get("output", {})
-        file_ext = Path(input_path).suffix.lower()
-        if (file_ext in ['.docx', '.doc'] and output_dir and 
-            out_cfg.get("save_list_positions", False)):
-            try:
-                list_position_paragraphs = self._extract_list_position_paragraphs(input_path)
-                if list_position_paragraphs:
-                    base_name = Path(input_path).stem
-                    list_pos_file = os.path.join(output_dir, f"{base_name}_list_positions.json")
-                    with open(list_pos_file, "w", encoding="utf-8") as f:
-                        json.dump(list_position_paragraphs, f, ensure_ascii=False, indent=2)
-            except Exception as e:
-                self.logger.warning(f"Не удалось извлечь list_position: {e}")
-
-        # 2) Иерархический чанкинг основного текста
+        # 2) Hierarchical chunking of main text
         hconf = self.config.get("hierarchical_chunking", {})
         target_level = hconf.get("target_level", 3)
         max_chunk_size = hconf.get("max_chunk_size", 1000)
         chunk_overlap_percent_text = hconf.get("chunk_overlap_percent_text", 20.0)
         chunk_overlap_percent_table = hconf.get("chunk_overlap_percent_table", 0.0)
-        
-        # Получаем параграфы из результата обработки
+
+        # Get paragraphs from processing result
         paragraphs = file_result.get("paragraphs", [])
-        
-        # Парсим иерархию из списка параграфов
+
+        # Parse hierarchy from paragraph list
         from .hierarchy_parser import HierarchyParser
         parser = HierarchyParser()
         section_nodes = parser.parse_hierarchy_from_paragraphs(paragraphs)
-        
-        # Генерируем чанки
+
+        # Generate chunks
         from .semantic_chunker import SemanticChunker
-        semantic_chunker = SemanticChunker(max_chunk_size=max_chunk_size, chunk_overlap_percent=chunk_overlap_percent_text)
+        semantic_chunker = SemanticChunker(
+            max_chunk_size=max_chunk_size,
+            chunk_overlap_percent=chunk_overlap_percent_text,
+        )
         chunks = semantic_chunker.generate_chunks(section_nodes, target_level=target_level)
-        
-        # Сериализуем результат
+
+        # Serialize result
         from .chunking_orchestrator import ChunkingOrchestrator
         chunker = ChunkingOrchestrator()
-        
-        # Получаем параметр включения content из конфигурации
+
         out_cfg = self.config.get("output", {})
         include_section_content = out_cfg.get("include_section_content", True)
-        
+
         process_result = {
             "sections": chunker._serialize_sections(section_nodes, include_content=include_section_content),
             "chunks": chunker._serialize_chunks(chunks),
@@ -1424,7 +1208,7 @@ class DocStructSplitter:
             }
         }
 
-        # 2.5) Чанкинг оглавления
+        # 2.5) Chunk table of contents
         toc_chunks = []
         if toc_text:
             try:
@@ -1432,23 +1216,20 @@ class DocStructSplitter:
             except Exception as e:
                 self.logger.warning(f"Не удалось обработать оглавление: {e}")
 
-        # 2.6) Создаем подразделы для таблиц в иерархии (только для DOCX)
+        # 2.6) Create subsections for tables in hierarchy (DOCX only)
         tables_data = file_result.get("tables_data", [])
         if tables_data:
             try:
-                # Используем исходные section_nodes напрямую, не сериализуя и не восстанавливая
-                # Теперь paragraphs содержит все параграфы (включая названия таблиц), так что
-                # paragraph_index_before работает одинаково для извлечения названия и поиска раздела
                 process_result = self._create_table_subsections(
                     tables_data,
-                    paragraphs,  # Массив параграфов (названия таблиц включены)
-                    section_nodes,  # Исходные SectionNode объекты
+                    paragraphs,
+                    section_nodes,
                     process_result,
                 )
             except Exception as e:
                 self.logger.warning(f"Не удалось создать подразделы для таблиц: {e}")
 
-        # 2.7) Обработка таблиц отдельно с созданием чанков
+        # 2.7) Process tables separately with chunk creation
         table_chunks = []
         if tables_data:
             try:
@@ -1457,13 +1238,13 @@ class DocStructSplitter:
                     process_result.get("sections", []),
                     max_chunk_size,
                     chunk_overlap_percent_table,
-                    output_dir=output_dir,
-                    input_path=input_path,
+                    output_dir=None,
+                    input_path=file_path,
                 )
             except Exception as e:
                 self.logger.warning(f"Не удалось обработать таблицы: {e}")
 
-        # 2.8) Обновляем чанки разделов, добавляя в children идентификаторы чанков таблиц
+        # 2.8) Update section chunks with table chunk children
         if table_chunks:
             process_result["chunks"] = self._update_chunks_with_table_children(
                 process_result.get("chunks", []),
@@ -1471,47 +1252,55 @@ class DocStructSplitter:
                 process_result,
             )
 
-        # 3) Сформировать итоговый результат
-        return {
-            "file_path": input_path,
-            "sections": process_result.get("sections", []),
-            "chunks": process_result.get("chunks", []),
-            "toc_chunks": toc_chunks,  # Чанки оглавления
-            "table_chunks": table_chunks,  # Чанки таблиц
-            "metadata": {
+        return (
+            {
+                "file_path": file_path,
+                "sections": process_result.get("sections", []),
+                "chunks": process_result.get("chunks", []),
+                "toc_chunks": toc_chunks,
+                "table_chunks": table_chunks,
+                "metadata": {
                 **{k: v for k, v in process_result.get("metadata", {}).items()},
                 "created_at": datetime.utcnow().isoformat() + "Z",
                 "has_toc": bool(toc_text),
                 "tables_count": len(tables_data),
             },
-        }
+        }, toc_text)
 
-    def run_end_to_end_folder(self, folder_path: str, output_dir: str) -> Dict[str, Any]:
+    def process_file(self, file_path: str, output_dir: Optional[str] = None) -> Dict[str, Any]:
         """
-        Полная обработка всех файлов в папке. Сохраняет в output_dir по файлу на каждый входной документ
-        только sections/chunks/metadata.
+        Process a single file and return structured result with sections, chunks, and metadata.
+        Optionally saves intermediate files to output_dir.
+
+        This replaces the old run_end_to_end method.
         """
-        os.makedirs(output_dir, exist_ok=True)
-        files = self._get_files_to_process(folder_path)
-        summary = {"total_files": len(files), "successful": 0, "failed": 0}
-        results: List[Dict[str, Any]] = []
-        errors: List[Dict[str, Any]] = []
+        result, toc_text = self._process_file_to_chunks(file_path)
 
-        for file_path in files:
-            try:
-                result = self.run_end_to_end(file_path, output_dir)
-                results.append({"file_path": file_path})
-                summary["successful"] += 1
+        # Optionally save intermediate files
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+            base_name = Path(file_path).stem
 
-                base_name = Path(file_path).stem
-                out_file = os.path.join(output_dir, f"{base_name}_hierarchical.json")
-                with open(out_file, "w", encoding="utf-8") as f:
-                    json.dump(result, f, ensure_ascii=False, indent=2)
-            except Exception as e:
-                errors.append({"file": file_path, "error": str(e)})
-                summary["failed"] += 1
+            # Save extracted text
+            out_cfg = self.config.get("output", {})
+            if out_cfg.get("save_docx2python_text"):
+                try:
+                    out_file = os.path.join(output_dir, f"{base_name}_extracted.txt")
+                    with open(out_file, "w", encoding="utf-8") as f:
+                        f.write(result.get("text_without_tables", "") or "")
+                except Exception as e:
+                    self.logger.warning(f"Не удалось сохранить текст: {e}")
 
-        return {"processed_files": results, "errors": errors, "summary": summary}
+            # Save TOC (только если включено в конфиге)
+            if out_cfg.get("save_toc_text") and toc_text:
+                try:
+                    toc_file = os.path.join(output_dir, f"{base_name}_toc.txt")
+                    with open(toc_file, "w", encoding="utf-8") as f:
+                        f.write(toc_text)
+                except Exception as e:
+                    self.logger.warning(f"Не удалось сохранить оглавление: {e}")
+
+        return result
     
     def _extract_list_position_paragraphs(self, file_path: str) -> List[Dict[str, Any]]:
         """
@@ -1527,7 +1316,7 @@ class DocStructSplitter:
             raise ImportError("Пакет docx2python недоступен")
         
         try:
-            doc = docx2python(file_path)
+            doc = DocumentReader.read_docx_raw(file_path)
             
             # Извлекаем все параграфы
             all_paragraphs = self._extract_all_paragraphs(doc.document_pars)

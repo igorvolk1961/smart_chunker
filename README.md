@@ -1,64 +1,80 @@
-# SmartChunker
+# DocStructSplitter
 
-Интеллектуальный инструмент для обработки и чанкинга документов с поддержкой многоуровневой иерархии.
+Интеллектуальный инструмент для обработки и чанкинга документов с поддержкой многоуровневой иерархии, совместимый с LangChain.
 
 ## Описание
 
-SmartChunker - это Python-библиотека для извлечения текста из различных форматов документов (DOCX, TXT) и создания структурированных чанков с сохранением иерархической структуры документа. Особенно эффективен для работы с техническими документами, содержащими многоуровневую нумерацию.
+**DocStructSplitter** — это Python-библиотека для извлечения текста из различных форматов документов (DOCX, TXT, MD, PDF) и создания структурированных чанков с сохранением иерархической структуры документа. Реализует интерфейс [`TextSplitter`](https://python.langchain.com/api_reference/text_splitters/langchain_text_splitters.base.TextSplitter.html) из LangChain, что позволяет использовать его как drop-in replacement в любом LangChain пайплайне.
+
+Особенно эффективен для работы с техническими документами, содержащими многоуровневую нумерацию, таблицы и оглавления.
 
 ## Основные возможности
 
-- **Множественные источники данных**: Поддержка DOCX и TXT файлов
-- **Восстановление нумерации**: Автоматическое восстановление многоуровневой нумерации из Word документов
+- **LangChain-совместимость**: Реализует `TextSplitter` (`split_text`, `split_documents`, `create_documents`)
+- **Множественные источники данных**: Поддержка DOCX, DOC, TXT, MD и PDF файлов
+- **Восстановление нумерации**: Автоматическое восстановление многоуровневой нумерации из Word документов через `docx2python`
 - **Извлечение оглавления**: Автоматическое извлечение и чанкинг оглавления документа
-- **Иерархический чанкинг**: Создание чанков с сохранением структуры документа
-- **Гибкая конфигурация**: Настройка параметров через JSON конфигурацию
+- **Иерархический чанкинг**: Создание чанков с сохранением структуры документа (разделы, подразделы)
+- **Семантический чанкинг**: Умное объединение разделов в чанки с учётом иерархии и перекрытия
+- **Обработка таблиц**: Извлечение и чанкинг таблиц из DOCX файлов с привязкой к разделам
+- **Гибкая конфигурация**: Настройка параметров через JSON конфигурацию или через конструктор
 - **Логирование**: Подробное логирование процесса обработки
 
 ## Установка
 
-1. Клонируйте репозиторий:
-```bash
-git clone <repository-url>
-cd smart_chunker
-```
-
-2. Создайте виртуальное окружение:
-```bash
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# Linux/Mac
-source .venv/bin/activate
-```
-
-3. Установите зависимости:
 ```bash
 pip install -r requirements.txt
 ```
 
-## Требования
+### Зависимости
 
 - Python 3.8+
-- docx2python
-- unstructured
-- PyPDF2 (опционально)
+- `langchain-text-splitters` — интерфейс TextSplitter
+- `langchain-core` — типы Document (опционально, для `split_documents`)
+- `docx2python` — чтение DOCX с list_position
+- `lxml` — парсинг XML DOCX
+- `unstructured` — чтение PDF (опционально)
 
 ## Использование
 
-### Базовое использование
+### LangChain-совместимый API
 
 ```python
-from smart_chunker.smart_chunker import SmartChunker
+from src.doc_struct_splitter import DocStructSplitter
 
-# Инициализация с конфигурацией
-    chunker = SmartChunker("config.json")
+# Инициализация с LangChain-совместимыми параметрами
+splitter = DocStructSplitter(
+    chunk_size=1000,       # Максимальный размер чанка
+    chunk_overlap=200,     # Перекрытие между чанками
+    target_level=3,        # Уровень иерархии для чанкинга
+)
 
-# Обработка одного файла
-result = chunker.run_end_to_end("input/document.docx", "output/")
+# Для plain text (TXT, MD) — split_text
+text = "1. Введение\nТекст введения.\n1.1. Подраздел\nТекст подраздела."
+chunks = splitter.split_text(text)
+# ['1. Введение\nТекст введения.', '1.1. Подраздел\nТекст подраздела.']
 
-# Обработка папки
-result = chunker.run_end_to_end_folder("data/input", "data/output")
+# Для DOCX файлов — split_documents с metadata['source']
+from langchain_core.documents import Document
+doc = Document(
+    page_content="",  # content игнорируется для DOCX
+    metadata={"source": "document.docx"}
+)
+result = splitter.split_documents([doc])
+# Чанки с полным pipeline: параграфы → нумерация → иерархия → таблицы
+```
+
+### Полный pipeline для файлов
+
+```python
+from src.doc_struct_splitter import DocStructSplitter
+
+splitter = DocStructSplitter(config_path="config.json")
+result = splitter.process_file("document.docx", output_dir="./output")
+
+print(f"Секций: {result['metadata']['total_sections']}")
+print(f"Чанков: {result['metadata']['total_chunks']}")
+print(f"Таблиц: {result['metadata']['tables_count']}")
 ```
 
 ### Запуск из командной строки
@@ -69,155 +85,173 @@ python run_smart_chunker.py
 
 ## Конфигурация
 
-Создайте файл `config.json` для настройки параметров:
+Параметры можно передать через конструктор или через JSON-файл:
+
+```python
+# Через конструктор (LangChain-стиль)
+splitter = DocStructSplitter(
+    chunk_size=1000,
+    chunk_overlap=200,
+    target_level=3,
+)
+
+# Через JSON-файл
+splitter = DocStructSplitter(config_path="config.json")
+```
+
+### Пример `config.json`
 
 ```json
 {
-  "table_processing": {
-    "max_paragraphs_after_table": 3
+  "tools": {
+    "unstructured": {
+      "enabled": true,
+      "chunking_strategy": "title",
+      "max_characters": 1000
+    },
+    "docx2txt": {
+      "enabled": true
+    }
   },
   "output": {
-    "save_docx2python_text": true,
-    "save_list_positions": false
+    "format": "json",
+    "save_path": "./output",
+    "save_docx2python_text": false,
+    "save_list_positions": false,
+    "include_section_content": true
   },
   "hierarchical_chunking": {
     "enabled": true,
     "target_level": 3,
-    "max_chunk_size": 1000
+    "max_chunk_size": 1000,
+    "chunk_overlap_percent_text": 20.0,
+    "chunk_overlap_percent_table": 0.0
+  },
+  "table_processing": {
+    "max_paragraphs_after_table": 3
   }
 }
 ```
 
-### Параметры конфигурации
+### Параметры конструктора
 
-#### `hierarchical_chunking`
-
-- **`enabled`** (bool): Включить иерархический чанкинг
-- **`target_level`** (int): Целевой уровень иерархии для создания чанков (по умолчанию: 3)
-- **`max_chunk_size`** (int): Максимальный размер чанка в символах (по умолчанию: 1000)
-
-#### `output`
-
-- **`save_docx2python_text`** (bool): Сохранять ли извлеченный текст в отдельный файл (суффикс `_docx2python.txt`)
-- **`save_list_positions`** (bool): Сохранять ли файл с информацией о позициях списков (суффикс `_list_positions.json`)
-
-#### `table_processing`
-
-- **`max_paragraphs_after_table`** (int): Максимальное количество абзацев после таблицы для объединения
+| Параметр | Тип | По умолчанию | Описание |
+|----------|-----|-------------|----------|
+| `chunk_size` | `int` | 1000 | Максимальный размер чанка (LangChain-стандарт) |
+| `chunk_overlap` | `int` | 200 | Перекрытие между чанками (LangChain-стандарт) |
+| `target_level` | `int` | 3 | Уровень иерархии для чанкинга |
+| `log_level` | `str` | "INFO" | Уровень логирования |
+| `config_path` | `str` | None | Путь к JSON-конфигурации |
 
 ## Структура проекта
 
 ```
 smart_chunker/
-├── smart_chunker/
-│   ├── __init__.py
-│   ├── smart_chunker.py      # Основной класс
-│   └── hierarchy_parser.py   # Парсер иерархии
+├── src/
+│   ├── __init__.py              # Экспорт публичных классов
+│   ├── doc_struct_splitter.py   # Основной класс DocStructSplitter (TextSplitter)
+│   ├── chunking_orchestrator.py # Координатор чанкинга
+│   ├── document_reader.py       # Чтение файлов разных форматов
+│   ├── hierarchy_parser.py      # Парсер иерархии разделов
+│   ├── langchain_adapter.py     # Конвертер в LangChain Document
+│   ├── numbering_restorer.py    # Восстановление нумерации
+│   ├── semantic_chunker.py      # Семантический чанкинг
+│   ├── table_processor.py       # Обработка таблиц DOCX
+│   └── utils.py                 # Утилиты
 ├── data/
-│   ├── input/               # Входные файлы
-│   └── output/              # Результаты (игнорируется git)
-├── config.json              # Конфигурация
-├── run_smart_chunker.py     # Скрипт запуска
-├── requirements.txt         # Зависимости
-└── README.md               # Документация
+│   ├── input/                   # Входные файлы
+│   └── output/                  # Результаты (игнорируется git)
+├── config.json                  # Конфигурация
+├── run_smart_chunker.py         # Скрипт запуска
+├── requirements.txt             # Зависимости
+├── setup.py                     # Пакетный менеджер
+└── README.md                    # Документация
 ```
+
+## Архитектура модуля
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    DocStructSplitter                             │
+│              (наследует TextSplitter из LangChain)               │
+├─────────────────────────────────────────────────────────────────┤
+│  split_text(text) → List[str]          (plain text: TXT/MD)     │
+│  split_documents(docs) → List[Document] (DOCX с metadata)       │
+│  process_file(path) → Dict             (полный pipeline)        │
+└──────────────────────┬──────────────────────────────────────────┘
+                       │
+          ┌────────────┼────────────┬──────────────┐
+          ▼            ▼            ▼              ▼
+   ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐
+   │Document  │ │Numbering │ │Table     │ │Chunking      │
+   │Reader    │ │Restorer  │ │Processor │ │Orchestrator  │
+   ├──────────┤ ├──────────┤ ├──────────┤ ├──────────────┤
+   │.docx     │ │list_pos  │ │extract   │ │HierarchyParser│
+   │.txt/.md  │ │→ restored│ │→ parse   │ │→ SectionNode │
+   │.pdf      │ │numbering │ │→ chunk   │ │SemanticChunker│
+   └──────────┘ └──────────┘ └──────────┘ └──────────────┘
+                       │
+                       ▼
+               ┌──────────────┐
+               │LangChain     │
+               │Adapter       │
+               ├──────────────┤
+               │→ Document[]  │
+               └──────────────┘
+```
+
+### Описание модулей
+
+| Модуль | Назначение |
+|--------|-----------|
+| [`DocStructSplitter`](src/doc_struct_splitter.py) | Главный оркестратор. Наследует `TextSplitter` из LangChain. Принимает файлы или текст, запускает полный pipeline: чтение → восстановление нумерации → парсинг иерархии → семантический чанкинг → обработка таблиц. |
+| [`DocumentReader`](src/document_reader.py) | Изоляция файлового I/O. Статические методы для чтения DOCX (через docx2python), TXT/MD (с автоопределением кодировки), PDF (через unstructured). |
+| [`NumberingRestorer`](src/numbering_restorer.py) | Восстанавливает многоуровневую нумерацию из `list_position` docx2python. Определяет уровень вложенности по отступам (табы/пробелы) и генерирует корректные номера вида `1.2.3.`. |
+| [`TableProcessor`](src/table_processor.py) | Извлекает таблицы из DOCX через lxml, парсит строки и ячейки, создаёт чанки таблиц с метаданными (название, номер раздела). |
+| [`HierarchyParser`](src/hierarchy_parser.py) | Парсит список параграфов с восстановленной нумерацией в дерево `SectionNode`. Определяет родительско-дочерние связи по уровням вложенности. |
+| [`SemanticChunker`](src/semantic_chunker.py) | Проходит по дереву `SectionNode` и создаёт чанки на указанном уровне иерархии. Поддерживает перекрытие (chunk overlap) между соседними чанками. |
+| [`ChunkingOrchestrator`](src/chunking_orchestrator.py) | Координатор между `HierarchyParser` и `SemanticChunker`. Сериализует результат в формат `{sections, chunks, metadata}`. |
+| [`LangChainAdapter`](src/langchain_adapter.py) | Конвертирует JSON-результат чанкинга в список `langchain_core.documents.Document` с метаданными (номер раздела, уровень, parent). |
 
 ## Особенности работы с нумерацией
 
-SmartChunker автоматически восстанавливает многоуровневую нумерацию из Word документов:
+DocStructSplitter автоматически восстанавливает многоуровневую нумерацию из Word документов:
 
-- **Входной формат**: `1)`, `2)`, `3)` с отступами
+- **Входной формат**: `1)`, `2)`, `3)` с отступами (табы/пробелы)
 - **Выходной формат**: `1.`, `1.1.`, `1.1.1.` с правильной иерархией
 - **Поддержка табов**: Корректная обработка отступов с табами и пробелами
-
-### Оглавление документа
-
-SmartChunker автоматически извлекает и чанкует оглавление документа:
-
-- **Извлечение**: Собирает номера и заголовки разделов и таблиц
-- **Чанкинг**: Разбивает оглавление на чанки с сохранением целостности заголовков
-- **Файл**: Сохраняется как `*_toc.txt` в папке результатов
-- **Метаданные**: Включается в основной JSON результат как `toc_chunks`
 
 ### Важные допущения
 
 ⚠️ **Ограничения алгоритма нумерации:**
 
 1. **Единый многоуровневый список**: Алгоритм предполагает, что в документе содержится только один многоуровневый список, начинающийся с номера `1.`
-
 2. **Плоские списки**: Простые нумерованные списки (например, `1. Стратегический уровень`) внутри многоуровневой структуры не интерпретируются как разделы, и не чанкуются отдельно, а только в составе текста родительского раздела
-
-3. **Структура таблиц**: Предполагается, что таблицы имеют простую структуру без объединенных ячеек
-
-Эти допущения обеспечивают корректную работу алгоритма восстановления нумерации для типичных технических документов.
-
-## Примеры использования
-
-### Обработка технического документа
-
-```python
-# Обработка документа с многоуровневой нумерацией
-    chunker = SmartChunker("config.json")
-result = chunker.run_end_to_end(
-    "data/input/technical_doc.docx", 
-    "data/output/"
-)
-
-# Результат: структурированные чанки с сохранением иерархии
-```
-
-### Массовая обработка
-
-```python
-# Обработка всех документов в папке
-    chunker = SmartChunker("config.json")
-results = chunker.run_end_to_end_folder(
-    "data/input/", 
-    "data/output/"
-)
-```
-
-## Логирование
-
-SmartChunker поддерживает детальное логирование:
-
-- **INFO**: Основные этапы обработки
-- **DEBUG**: Детальная информация о восстановлении нумерации
-- **WARNING**: Предупреждения об ошибках
-- **ERROR**: Критические ошибки
+3. **Структура таблиц**: Предполагается, что таблицы имеют простую структуру без объединённых ячеек
 
 ## Разработка
 
 ### Запуск тестов
 
 ```bash
-python -m pytest tests/
+python -m pytest tests/ -v
 ```
 
 ### Форматирование кода
 
 ```bash
-black smart_chunker/
-isort smart_chunker/
+ruff check src/
+ruff format src/
 ```
 
-## Лицензия
-
-[Укажите лицензию проекта]
-
-## Вклад в проект
-
-1. Форкните репозиторий
-2. Создайте ветку для новой функции (`git checkout -b feature/amazing-feature`)
-3. Зафиксируйте изменения (`git commit -m 'Add amazing feature'`)
-4. Отправьте в ветку (`git push origin feature/amazing-feature`)
-5. Откройте Pull Request
-
-## Поддержка
-
-Если у вас возникли вопросы или проблемы, создайте issue в репозитории.
-
 ## Changelog
+
+### v2.0.0
+- LangChain-совместимый интерфейс (`TextSplitter`)
+- Переименование модулей: `smart_chanker` → `src`, `SmartChunker` → `DocStructSplitter`
+- Выделение `DocumentReader` для изоляции файлового I/O
+- Удалён устаревший API (`run_end_to_end`, `run_end_to_end_folder`)
+- Обновлён `setup.py` для `src/` layout
 
 ### v1.0.0
 - Базовая функциональность извлечения текста

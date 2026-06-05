@@ -148,6 +148,36 @@ class SemanticChunker:
         for element_idx, element in enumerate(elements):
             element_size = len(element)
             
+            # Если элемент сам по себе больше max_chunk_size, разбиваем его по символам
+            if element_size > self.max_chunk_size:
+                # Сначала сохраняем накопленный чанк, если есть
+                if current_chunk_content:
+                    chunk_content = '\n'.join(current_chunk_content)
+                    chunk_id = str(uuid.uuid4())
+                    start_pos = current_pos - current_size
+                    end_pos = current_pos
+                    metadata = self._create_chunk_metadata(section, chunk_id, chunk_number, is_complete=False, start_pos=start_pos, end_pos=end_pos)
+                    section.chunks.append(chunk_id)
+                    chunks.append(Chunk(content=chunk_content, metadata=metadata, section=section))
+                    chunk_number += 1
+                    current_chunk_content = []
+                    current_size = 0
+                
+                # Разбиваем большой элемент на части по max_chunk_size
+                start = 0
+                while start < element_size:
+                    end = min(start + self.max_chunk_size, element_size)
+                    chunk_text = element[start:end]
+                    chunk_id = str(uuid.uuid4())
+                    metadata = self._create_chunk_metadata(section, chunk_id, chunk_number, is_complete=False, start_pos=start, end_pos=end)
+                    section.chunks.append(chunk_id)
+                    chunks.append(Chunk(content=chunk_text, metadata=metadata, section=section))
+                    chunk_number += 1
+                    start = end
+                
+                current_pos += element_size + 1
+                continue
+            
             # Проверяем, помещается ли элемент в текущий чанк
             if current_size + element_size > self.max_chunk_size and current_chunk_content:
                 # Создаем чанк из накопленного контента

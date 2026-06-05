@@ -5,6 +5,7 @@
   },
   "output": {
     "save_docx2python_text": true,
+    "save_toc_text": true,
     "save_list_positions": false,
     "save_table_json": false,
     "include_section_content": true
