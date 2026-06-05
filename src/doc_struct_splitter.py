@@ -19,12 +19,7 @@ from .numbering_restorer import NumberingRestorer
 from .table_processor import TableProcessor, ParsedDocxTable
 
 # LangChain TextSplitter для совместимости
-try:
-    from langchain_text_splitters import TextSplitter
-    TEXT_SPLITTER_AVAILABLE = True
-except ImportError:
-    TextSplitter = object
-    TEXT_SPLITTER_AVAILABLE = False
+from langchain_text_splitters import TextSplitter
 
 
 class DocStructSplitter(TextSplitter):

@@ -1,14 +1,12 @@
-# Основные инструменты обработки
-unstructured[local-inference]>=0.10.0
-docx2python>=1.0.0
-
-# Дополнительные зависимости
-pathlib2>=2.3.7
-typing-extensions>=4.0.0
-beautifulsoup4>=4.12.0
-
-# Для работы с LangChain адаптером и TextSplitter
+# Обязательные зависимости
 langchain-core>=0.1.0
 langchain-text-splitters>=0.0.1
+lxml>=4.9.0
+beautifulsoup4>=4.12.0
+
+# Опционально: для чтения DOCX (docx2python) и PDF (unstructured)
+# docx2python>=1.0.0
+# unstructured[local-inference]>=0.10.0
+
 # Для тестирования
 pytest>=7.0.0
