@@ -5,7 +5,7 @@
 import json
 from typing import List, Dict, Any, Optional
 from .hierarchy_parser import HierarchyParser, SectionNode
-from .semantic_chunker import SemanticChunker, Chunk
+from .section_chunker import SectionChunker, Chunk
 
 
 class ChunkingOrchestrator:
@@ -22,7 +22,7 @@ class ChunkingOrchestrator:
         self.parser = HierarchyParser()
         max_chunk_size = self.config.get('max_chunk_size', 1000)
         chunk_overlap_percent = self.config.get('chunk_overlap_percent_text', 20.0)
-        self.chunker = SemanticChunker(
+        self.chunker = SectionChunker(
             max_chunk_size=max_chunk_size,
             chunk_overlap_percent=chunk_overlap_percent
         )

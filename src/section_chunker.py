@@ -1,5 +1,5 @@
 """
-Модуль для генерации семантических чанков из иерархии разделов
+Модуль для генерации чанков из иерархии разделов
 """
 
 import re
@@ -11,14 +11,14 @@ from .hierarchy_parser import SectionNode, ChunkMetadata
 
 @dataclass
 class Chunk:
-    """Семантический чанк"""
+    """Чанк раздела"""
     content: str
     metadata: ChunkMetadata
     section: SectionNode
 
 
-class SemanticChunker:
-    """Генератор семантических чанков"""
+class SectionChunker:
+    """Генератор чанков на основе разделов"""
     
     def __init__(self, max_chunk_size: int = 1000, chunk_overlap_percent: float = 20.0):
         """

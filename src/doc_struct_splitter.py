@@ -1072,13 +1072,13 @@ class DocStructSplitter(TextSplitter):
         parser = HierarchyParser()
         section_nodes = parser.parse_hierarchy(text)
 
-        # Generate semantic chunks
-        from .semantic_chunker import SemanticChunker
-        semantic_chunker = SemanticChunker(
+        # Generate chunks from sections
+        from .section_chunker import SectionChunker
+        section_chunker = SectionChunker(
             max_chunk_size=max_chunk_size,
             chunk_overlap_percent=hconf.get("chunk_overlap_percent_text", 20.0),
         )
-        chunks = semantic_chunker.generate_chunks(section_nodes, target_level=target_level)
+        chunks = section_chunker.generate_chunks(section_nodes, target_level=target_level)
 
         # Return only chunk texts
         return [chunk.content for chunk in chunks]
@@ -1183,12 +1183,12 @@ class DocStructSplitter(TextSplitter):
         section_nodes = parser.parse_hierarchy_from_paragraphs(paragraphs)
 
         # Generate chunks
-        from .semantic_chunker import SemanticChunker
-        semantic_chunker = SemanticChunker(
+        from .section_chunker import SectionChunker
+        section_chunker = SectionChunker(
             max_chunk_size=max_chunk_size,
             chunk_overlap_percent=chunk_overlap_percent_text,
         )
-        chunks = semantic_chunker.generate_chunks(section_nodes, target_level=target_level)
+        chunks = section_chunker.generate_chunks(section_nodes, target_level=target_level)
 
         # Serialize result
         from .chunking_orchestrator import ChunkingOrchestrator
@@ -1255,6 +1255,7 @@ class DocStructSplitter(TextSplitter):
         return (
             {
                 "file_path": file_path,
+                "text_without_tables": text_without_tables,
                 "sections": process_result.get("sections", []),
                 "chunks": process_result.get("chunks", []),
                 "toc_chunks": toc_chunks,

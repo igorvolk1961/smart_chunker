@@ -1,10 +1,10 @@
 """
-Tests for SemanticChunker — generates chunks from SectionNode tree.
+Tests for SectionChunker — generates chunks from SectionNode tree.
 """
 
 
 from src.hierarchy_parser import SectionNode
-from src.semantic_chunker import SemanticChunker
+from src.section_chunker import SectionChunker
 
 
 def _make_node(number: str, title: str, content: str = "", level: int = 1,
@@ -19,13 +19,13 @@ def _make_node(number: str, title: str, content: str = "", level: int = 1,
     )
 
 
-class TestSemanticChunker:
-    """Test SemanticChunker.generate_chunks."""
+class TestSectionChunker:
+    """Test SectionChunker.generate_chunks."""
 
     def test_single_section(self):
         """Should create a single chunk for one section."""
         nodes = [_make_node("1", "Раздел", "Текст раздела.", level=1)]
-        chunker = SemanticChunker(max_chunk_size=1000)
+        chunker = SectionChunker(max_chunk_size=1000)
         chunks = chunker.generate_chunks(nodes, target_level=1)
         assert len(chunks) == 1
         # Content is the section body (without the number prefix)
@@ -38,7 +38,7 @@ class TestSemanticChunker:
             _make_node("2", "Второй", "Текст 2.", level=1),
             _make_node("3", "Третий", "Текст 3.", level=1),
         ]
-        chunker = SemanticChunker(max_chunk_size=1000)
+        chunker = SectionChunker(max_chunk_size=1000)
         chunks = chunker.generate_chunks(nodes, target_level=1)
         assert len(chunks) == 3
 
@@ -48,7 +48,7 @@ class TestSemanticChunker:
         child2 = _make_node("1.2", "Ещё подраздел", "Ещё текст.", level=2)
         parent = _make_node("1", "Раздел", "Введение.", level=1, children=[child1, child2])
 
-        chunker = SemanticChunker(max_chunk_size=1000)
+        chunker = SectionChunker(max_chunk_size=1000)
         # Pass all nodes in flat list (children included)
         chunks = chunker.generate_chunks([parent, child1, child2], target_level=2)
         assert len(chunks) == 2
@@ -59,21 +59,21 @@ class TestSemanticChunker:
         """Should respect max_chunk_size."""
         long_content = "Слово " * 500  # ~3000 chars
         nodes = [_make_node("1", "Раздел", long_content, level=1)]
-        chunker = SemanticChunker(max_chunk_size=500)
+        chunker = SectionChunker(max_chunk_size=500)
         chunks = chunker.generate_chunks(nodes, target_level=1)
         for chunk in chunks:
             assert len(chunk.content) <= 600  # allow small overhead
 
     def test_empty_nodes(self):
         """Should handle empty node list."""
-        chunker = SemanticChunker(max_chunk_size=1000)
+        chunker = SectionChunker(max_chunk_size=1000)
         chunks = chunker.generate_chunks([], target_level=1)
         assert chunks == []
 
     def test_chunk_metadata(self):
         """Should include metadata in chunks."""
         nodes = [_make_node("1", "Раздел", "Текст.", level=1)]
-        chunker = SemanticChunker(max_chunk_size=1000)
+        chunker = SectionChunker(max_chunk_size=1000)
         chunks = chunker.generate_chunks(nodes, target_level=1)
         meta = chunks[0].metadata
         assert meta.section_number == "1"
