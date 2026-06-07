@@ -571,7 +571,8 @@ class DocStructSplitter(TextSplitter):
                     'table_id': None,
                     'is_complete_section': True,
                     'start_pos': 0,
-                    'end_pos': len(chunk_content)
+                    'end_pos': len(chunk_content),
+                    'chunk_type': 'toc'
                 }
                 
                 chunks.append({
@@ -606,7 +607,8 @@ class DocStructSplitter(TextSplitter):
                 'table_id': None,
                 'is_complete_section': True,
                 'start_pos': 0,
-                'end_pos': len(chunk_content)
+                'end_pos': len(chunk_content),
+                'chunk_type': 'toc'
             }
             
             chunks.append({
@@ -1851,6 +1853,7 @@ class DocStructSplitter(TextSplitter):
                     start_pos=0,
                     end_pos=len(chunk_content),
                     table_id=f"Table_{table_idx + 1}",
+                    chunk_type="table",
                 )
                 
                 table_chunks.append({
@@ -1867,6 +1870,7 @@ class DocStructSplitter(TextSplitter):
                         'start_pos': metadata.start_pos,
                         'end_pos': metadata.end_pos,
                         'table_name': table_name,
+                        'chunk_type': metadata.chunk_type,
                     }
                 })
         

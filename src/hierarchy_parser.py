@@ -65,7 +65,7 @@ class ChunkMetadata:
     table_id: Optional[str] = None
     list_position: Optional[tuple] = None  # list_position из docx2python
     paragraph_indices: List[int] = None  # Индексы параграфов, из которых состоит чанк
-    chunk_type: str = "section_content"  # Тип чанка: "section_title", "section_content", "table"
+    chunk_type: str = "section_content"  # Тип чанка: "section_title", "section_content", "table", "toc"
     
     def __post_init__(self):
         if self.paragraph_indices is None:

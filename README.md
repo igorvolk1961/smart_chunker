@@ -17,6 +17,7 @@
 - **Иерархический чанкинг**: Создание чанков с сохранением структуры документа (разделы, подразделы)
 - **Семантический чанкинг**: Умное объединение разделов в чанки с учётом иерархии и перекрытия
 - **Обработка таблиц**: Извлечение и чанкинг таблиц из DOCX файлов с привязкой к разделам
+- **Типизация чанков**: Каждый чанк содержит метаданные с типом: `section_title`, `section_content`, `table`, `toc`
 - **Гибкая конфигурация**: Настройка параметров через JSON конфигурацию или через конструктор
 - **Логирование**: Подробное логирование процесса обработки
 
@@ -152,10 +153,11 @@ smart_chunker/
 │   ├── doc_struct_splitter.py   # Основной класс DocStructSplitter (TextSplitter)
 │   ├── chunking_orchestrator.py # Координатор чанкинга
 │   ├── document_reader.py       # Чтение файлов разных форматов
-│   ├── hierarchy_parser.py      # Парсер иерархии разделов
+│   ├── hierarchy_parser.py      # Парсер иерархии разделов + ChunkMetadata
 │   ├── langchain_adapter.py     # Конвертер в LangChain Document
+│   ├── nlp_utils.py             # NLP-утилиты (VerbDetector для определения типа чанка)
 │   ├── numbering_restorer.py    # Восстановление нумерации
-│   ├── semantic_chunker.py      # Семантический чанкинг
+│   ├── section_chunker.py       # Чанкинг разделов с определением типа чанка
 │   ├── table_processor.py       # Обработка таблиц DOCX
 │   └── utils.py                 # Утилиты
 ├── data/
@@ -212,6 +214,28 @@ smart_chunker/
 | [`SemanticChunker`](src/semantic_chunker.py) | Проходит по дереву `SectionNode` и создаёт чанки на указанном уровне иерархии. Поддерживает перекрытие (chunk overlap) между соседними чанками. |
 | [`ChunkingOrchestrator`](src/chunking_orchestrator.py) | Координатор между `HierarchyParser` и `SemanticChunker`. Сериализует результат в формат `{sections, chunks, metadata}`. |
 | [`LangChainAdapter`](src/langchain_adapter.py) | Конвертирует JSON-результат чанкинга в список `langchain_core.documents.Document` с метаданными (номер раздела, уровень, parent). |
+| [`NLPUtils`](src/nlp_utils.py) | NLP-утилиты: `VerbDetector` для определения наличия глаголов в тексте (через SpaCy или regex fallback). Используется для классификации типа чанка. |
+
+## Типы чанков
+
+Каждый чанк содержит метаданные с полем `chunk_type`, которое определяет его семантическую роль в документе:
+
+| Тип | Значение | Где устанавливается | Описание |
+|-----|----------|---------------------|----------|
+| `section_title` | `"section_title"` | [`SectionChunker._determine_chunk_type()`](src/section_chunker.py) | Заголовок раздела. Определяется по отсутствию глаголов в тексте и совпадению содержимого с заголовком. |
+| `section_content` | `"section_content"` | [`SectionChunker._determine_chunk_type()`](src/section_chunker.py) | Содержимое раздела — текст, не являющийся заголовком. Значение по умолчанию. |
+| `table` | `"table"` | [`SectionChunker._determine_chunk_type()`](src/section_chunker.py) + [`DocStructSplitter._process_tables_with_sections()`](src/doc_struct_splitter.py) | Таблица, извлечённая из документа. Содержит дополнительные метаданные: `table_id`, `table_title`. |
+| `toc` | `"toc"` | [`DocStructSplitter._chunk_table_of_contents()`](src/doc_struct_splitter.py) | Содержание (Table of Contents). Извлекается из начала документа и чанкуется отдельно. |
+
+### Логика определения типа
+
+Тип чанка определяется в [`SectionChunker._determine_chunk_type()`](src/section_chunker.py) по следующему алгоритму:
+
+1. Если у чанка есть `table_id` → `"table"`
+2. Если чанк является полной секцией (`is_complete_section=True`), его содержимое совпадает с заголовком, и в тексте **нет глаголов** (проверка через [`VerbDetector`](src/nlp_utils.py)) → `"section_title"`
+3. Во всех остальных случаях → `"section_content"`
+
+Для оглавления (`toc`) тип проставляется напрямую при создании чанков в [`DocStructSplitter._chunk_table_of_contents()`](src/doc_struct_splitter.py).
 
 ## Особенности работы с нумерацией
 
