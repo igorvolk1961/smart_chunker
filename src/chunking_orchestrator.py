@@ -21,11 +21,11 @@ class ChunkingOrchestrator:
         self.config = config or self._get_default_config()
         self.parser = HierarchyParser(config=self.config)
         max_chunk_size = self.config.get('max_chunk_size', 1000)
-        chunk_overlap_percent = self.config.get('chunk_overlap_percent_text', 20.0)
+        chunk_overlap = self.config.get('chunk_overlap', 200)
         # Используем VerbDetector из HierarchyParser для определения типа чанка
         self.chunker = SectionChunker(
             max_chunk_size=max_chunk_size,
-            chunk_overlap_percent=chunk_overlap_percent,
+            chunk_overlap=chunk_overlap,
             verb_detector=self.parser.verb_detector
         )
     
@@ -34,7 +34,7 @@ class ChunkingOrchestrator:
         return {
             'target_level': 3,
             'max_chunk_size': 1000,
-            'chunk_overlap_percent_text': 20.0
+            'chunk_overlap': 200
         }
     
     def process_text(self, text: str) -> Dict[str, Any]:

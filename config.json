@@ -14,8 +14,7 @@
     "enabled": true,
     "target_level": 3,
     "max_chunk_size": 1000,
-    "chunk_overlap_percent_text": 20,
-    "chunk_overlap_percent_table": 0
+    "chunk_overlap": 200
   },
   "nlp": {
     "enabled": true,

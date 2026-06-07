@@ -23,18 +23,18 @@ class Chunk:
 class SectionChunker:
     """Генератор чанков на основе разделов"""
     
-    def __init__(self, max_chunk_size: int = 1000, chunk_overlap_percent: float = 20.0,
+    def __init__(self, max_chunk_size: int = 1000, chunk_overlap: int = 200,
                  verb_detector: Optional['VerbDetector'] = None):
         """
         Инициализация чанкера
         
         Args:
             max_chunk_size: Максимальный размер чанка в символах
-            chunk_overlap_percent: Процент перекрытия от max_chunk_size (по умолчанию 20%)
+            chunk_overlap: Перекрытие между чанками в символах (по умолчанию 200)
             verb_detector: Опциональный детектор глаголов для определения типа чанка
         """
         self.max_chunk_size = max_chunk_size
-        self.chunk_overlap_size = int(max_chunk_size * chunk_overlap_percent / 100.0)
+        self.chunk_overlap_size = chunk_overlap
         self.verb_detector = verb_detector
     
     def generate_chunks(self, sections: List[SectionNode], 

@@ -1074,7 +1074,7 @@ class DocStructSplitter(TextSplitter):
         from .section_chunker import SectionChunker
         section_chunker = SectionChunker(
             max_chunk_size=max_chunk_size,
-            chunk_overlap_percent=hconf.get("chunk_overlap_percent_text", 20.0),
+            chunk_overlap=self._chunk_overlap,
         )
         chunks = section_chunker.generate_chunks(section_nodes, target_level=target_level)
 
@@ -1168,8 +1168,6 @@ class DocStructSplitter(TextSplitter):
         hconf = self.config.get("hierarchical_chunking", {})
         target_level = hconf.get("target_level", 3)
         max_chunk_size = hconf.get("max_chunk_size", 1000)
-        chunk_overlap_percent_text = hconf.get("chunk_overlap_percent_text", 20.0)
-        chunk_overlap_percent_table = hconf.get("chunk_overlap_percent_table", 0.0)
 
         # Get paragraphs from processing result
         paragraphs = file_result.get("paragraphs", [])
@@ -1183,7 +1181,7 @@ class DocStructSplitter(TextSplitter):
         from .section_chunker import SectionChunker
         section_chunker = SectionChunker(
             max_chunk_size=max_chunk_size,
-            chunk_overlap_percent=chunk_overlap_percent_text,
+            chunk_overlap=self._chunk_overlap,
         )
         chunks = section_chunker.generate_chunks(section_nodes, target_level=target_level)
 
@@ -1234,7 +1232,7 @@ class DocStructSplitter(TextSplitter):
                     tables_data,
                     process_result.get("sections", []),
                     max_chunk_size,
-                    chunk_overlap_percent_table,
+                    self._chunk_overlap,
                     output_dir=None,
                     input_path=file_path,
                 )
@@ -1775,7 +1773,7 @@ class DocStructSplitter(TextSplitter):
         tables_data: List[Dict],
         sections: List[Dict],
         max_chunk_size: int,
-        chunk_overlap_percent_table: float = 0.0,
+        chunk_overlap: int = 0,
         output_dir: Optional[str] = None,
         input_path: Optional[str] = None,
     ) -> List[Dict]:
@@ -1786,7 +1784,7 @@ class DocStructSplitter(TextSplitter):
             tables_data: Данные о таблицах с позициями и номерами подразделов
             sections: Список разделов из иерархического парсинга
             max_chunk_size: Максимальный размер чанка
-            chunk_overlap_percent_table: Процент перекрытия для чанков таблиц (от max_chunk_size)
+            chunk_overlap: Перекрытие между чанками таблиц в символах
             output_dir: Директория для сохранения результатов (для отладки)
             input_path: Путь к исходному файлу (для формирования имени файла)
             
@@ -1832,7 +1830,7 @@ class DocStructSplitter(TextSplitter):
                     self.logger.warning(f"Не удалось сохранить JSON таблицы {table_idx + 1}: {e}")
             
             # Чанкуем таблицу
-            chunk_overlap_size_table = int(max_chunk_size * chunk_overlap_percent_table / 100.0)
+            chunk_overlap_size_table = chunk_overlap
             table_chunk_contents = self.table_processor.docx_table_to_chunks(
                 docx_table, table_name, max_chunk_size, chunk_overlap_size_table
             )

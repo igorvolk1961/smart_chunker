@@ -125,8 +125,7 @@ splitter = DocStructSplitter(config_path="config.json")
     "enabled": true,
     "target_level": 3,
     "max_chunk_size": 1000,
-    "chunk_overlap_percent_text": 20.0,
-    "chunk_overlap_percent_table": 0.0
+    "chunk_overlap": 200
   },
   "table_processing": {
     "max_paragraphs_after_table": 3
