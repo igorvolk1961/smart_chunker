@@ -17,6 +17,10 @@
     "chunk_overlap_percent_text": 20,
     "chunk_overlap_percent_table": 0
   },
+  "nlp": {
+    "enabled": true,
+    "model": "ru_core_news_sm"
+  },
   "logging": {
     "level": "DEBUG"
   }

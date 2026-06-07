@@ -3,7 +3,7 @@
 """
 
 import re
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Any
 from dataclasses import dataclass
 
 
@@ -65,6 +65,7 @@ class ChunkMetadata:
     table_id: Optional[str] = None
     list_position: Optional[tuple] = None  # list_position из docx2python
     paragraph_indices: List[int] = None  # Индексы параграфов, из которых состоит чанк
+    chunk_type: str = "section_content"  # Тип чанка: "section_title", "section_content", "table"
     
     def __post_init__(self):
         if self.paragraph_indices is None:
@@ -74,11 +75,20 @@ class ChunkMetadata:
 class HierarchyParser:
     """Парсер иерархии из плоского текста"""
     
-    def __init__(self):
-        """Инициализация парсера"""
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
+        """
+        Инициализация парсера
+        
+        Args:
+            config: Опциональная конфигурация (секция 'nlp' для VerbDetector)
+        """
+        self.config = config or {}
         self.patterns = self._init_patterns()
         self.sections = []
         self.flat_lists = []
+        # Инициализируем детектор глаголов (SpaCy или fallback)
+        from .nlp_utils import VerbDetector
+        self.verb_detector = VerbDetector(self.config)
     
     def _init_patterns(self) -> Dict[str, re.Pattern]:
         """Инициализация регулярных выражений"""
@@ -142,6 +152,54 @@ class HierarchyParser:
         
         return sections
     
+    def _find_first_section_line(self, lines: List[str]) -> int:
+        """
+        Определяет строку, с которой начинается первый реальный нумерованный раздел.
+        
+        Сканирует строки в поисках первого глагола. Строки с номерами (1., 2., ...)
+        до первого глагола считаются частью преамбулы (раздел "0").
+        Последняя строка с номером перед первым глаголом считается началом
+        первого раздела.
+        
+        Args:
+            lines: Список строк документа
+            
+        Returns:
+            Индекс строки, с которой начинается первый раздел (0, если весь документ — преамбула)
+        """
+        first_section_line = 0
+        last_candidate_line = -1  # последняя строка вида "1. ..."
+        
+        for i, raw_line in enumerate(lines):
+            line = raw_line.strip()
+            if not line:
+                continue
+            
+            # Проверяем, начинается ли строка с номера (1., 2., 1.1., и т.д.)
+            is_numbered = bool(re.match(r'^\d+\.', line)) or bool(re.match(r'^\d+(?:\.\d+)+\.', line))
+            
+            if is_numbered:
+                # Запоминаем как кандидата на первый раздел
+                last_candidate_line = i
+            else:
+                # Проверяем, есть ли в строке глагол
+                if self.verb_detector.contains_verb(line):
+                    # Нашли первый глагол — последний кандидат становится первым разделом
+                    if last_candidate_line >= 0:
+                        first_section_line = last_candidate_line
+                    break
+        
+        # Если глагол не найден, но были кандидаты — первый кандидат становится первым разделом
+        if first_section_line == 0 and last_candidate_line >= 0:
+            # Ищем первый кандидат
+            for i, raw_line in enumerate(lines):
+                line = raw_line.strip()
+                if line and re.match(r'^\d+\.', line):
+                    first_section_line = i
+                    break
+        
+        return first_section_line
+    
     def _parse_hierarchy_from_lines(self, lines: List[str]) -> List[SectionNode]:
         """
         Внутренний метод для парсинга иерархии из списка строк
@@ -154,6 +212,9 @@ class HierarchyParser:
         """
         self.sections = []
         self.flat_lists = []
+        
+        # Определяем, где начинается первый реальный раздел
+        first_section_line = self._find_first_section_line(lines)
         
         # Стек для отслеживания текущего уровня иерархии
         hierarchy_stack = []
@@ -244,6 +305,23 @@ class HierarchyParser:
                         i = fence_end + 1
                         continue
                 # Если не нашли корректный блок таблицы, продолжаем обычную обработку строки
+            
+            # До first_section_line все строки (включая нумерованные) — преамбула
+            if i < first_section_line:
+                # Добавляем к разделу "0" как обычный текст
+                if current_zero_section is None:
+                    current_zero_section = SectionNode(
+                        number="0",
+                        title=line[:50] + "..." if len(line) > 50 else line,
+                        level=0,
+                        content=line
+                    )
+                    self.sections.append(current_zero_section)
+                    last_section = current_zero_section
+                else:
+                    current_zero_section.content += f"\n{line}"
+                i += 1
+                continue
             
             element_type, number = self._classify_element(line, numbering_context)
             

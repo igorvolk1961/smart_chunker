@@ -8,5 +8,9 @@ beautifulsoup4>=4.12.0
 # docx2python>=1.0.0
 # unstructured[local-inference]>=0.10.0
 
+# Опционально: NLP для детекции глаголов (POS-tagging)
+# spacy>=3.7.0
+# python -m spacy download ru_core_news_sm
+
 # Для тестирования
 pytest>=7.0.0

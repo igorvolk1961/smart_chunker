@@ -4,9 +4,12 @@
 
 import re
 import uuid
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from dataclasses import dataclass
 from .hierarchy_parser import SectionNode, ChunkMetadata
+
+if TYPE_CHECKING:
+    from .nlp_utils import VerbDetector
 
 
 @dataclass
@@ -20,16 +23,19 @@ class Chunk:
 class SectionChunker:
     """Генератор чанков на основе разделов"""
     
-    def __init__(self, max_chunk_size: int = 1000, chunk_overlap_percent: float = 20.0):
+    def __init__(self, max_chunk_size: int = 1000, chunk_overlap_percent: float = 20.0,
+                 verb_detector: Optional['VerbDetector'] = None):
         """
         Инициализация чанкера
         
         Args:
             max_chunk_size: Максимальный размер чанка в символах
             chunk_overlap_percent: Процент перекрытия от max_chunk_size (по умолчанию 20%)
+            verb_detector: Опциональный детектор глаголов для определения типа чанка
         """
         self.max_chunk_size = max_chunk_size
         self.chunk_overlap_size = int(max_chunk_size * chunk_overlap_percent / 100.0)
+        self.verb_detector = verb_detector
     
     def generate_chunks(self, sections: List[SectionNode], 
                        target_level: int = 3) -> List[Chunk]:
@@ -306,6 +312,9 @@ class SectionChunker:
         # table_id только для табличных разделов (*.T{N})
         table_id: Optional[str] = section.number if self._is_table_section(section) else None
         
+        # Определяем тип чанка
+        chunk_type = self._determine_chunk_type(section, is_complete, table_id)
+        
         # Вычисляем индексы параграфов для чанка на основе позиций
         paragraph_indices = self._get_paragraph_indices_for_chunk(
             section, start_pos, end_pos
@@ -323,8 +332,41 @@ class SectionChunker:
             start_pos=start_pos,
             end_pos=end_pos,
             list_position=None,  # Убираем list_position
-            paragraph_indices=paragraph_indices
+            paragraph_indices=paragraph_indices,
+            chunk_type=chunk_type
         )
+    
+    def _determine_chunk_type(self, section: SectionNode, is_complete: bool,
+                              table_id: Optional[str]) -> str:
+        """
+        Определяет тип чанка на основе содержимого раздела.
+        
+        Логика:
+        - Если есть table_id → "table"
+        - Если is_complete_section и content == title и в title нет глаголов → "section_title"
+        - Иначе → "section_content"
+        
+        Args:
+            section: Раздел
+            is_complete: Полный ли это раздел
+            table_id: ID таблицы (если есть)
+            
+        Returns:
+            Тип чанка: "section_title", "section_content" или "table"
+        """
+        if table_id is not None:
+            return "table"
+        
+        if is_complete and section.content.strip() == section.title.strip():
+            # Проверяем, есть ли в заголовке глаголы
+            if self.verb_detector is not None:
+                has_verb = self.verb_detector.contains_verb(section.title)
+            else:
+                has_verb = False
+            if not has_verb:
+                return "section_title"
+        
+        return "section_content"
     
     def _get_paragraph_indices_for_chunk(
         self, 
