@@ -18,10 +18,10 @@ from pathlib import Path
 # Project root = parent of the examples/ directory
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Ensure the project root is on sys.path so `src` can be imported
-sys.path.insert(0, str(PROJECT_ROOT))
+# Add src/ to sys.path so smart_chunker package is importable
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from src.doc_struct_splitter import DocStructSplitter
+from smart_chunker.doc_struct_splitter import DocStructSplitter
 
 # ---------------------------------------------------------------------------
 # Paths — data lives inside examples/ so the script is self-contained
@@ -115,7 +115,7 @@ def main():
     doc_chunks = demo_split_documents(chunker, DOCX_PATH)
 
     # -----------------------------------------------------------------------
-    # Save results — only split_documents output
+    # Save results — split_documents output as JSON
     # -----------------------------------------------------------------------
     results = {
         "config": {

@@ -16,11 +16,11 @@ from pathlib import Path
 # Project root = parent of the examples/ directory
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# Ensure the project root is on sys.path so `src` can be imported
-sys.path.insert(0, str(PROJECT_ROOT))
+# Add src/ to sys.path so smart_chunker package is importable
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from src.doc_struct_splitter import DocStructSplitter
-from src.document_reader import DocumentReader
+from smart_chunker.doc_struct_splitter import DocStructSplitter
+from smart_chunker.document_reader import DocumentReader
 
 # ---------------------------------------------------------------------------
 # Paths — data lives inside examples/ so the script is self-contained
