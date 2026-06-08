@@ -4,13 +4,7 @@
 
 import json
 import os
-import sys
 from pathlib import Path
-
-# Project root = parent of the examples/ directory
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-# Add src/ to sys.path so smart_chunker package is importable
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from smart_chunker.doc_struct_splitter import DocStructSplitter
 
@@ -19,9 +13,10 @@ def main():
     
     # Пути относительно папки скрипта (self-contained)
     script_dir = Path(__file__).resolve().parent
+    project_root = script_dir.parent
     input_folder = str(script_dir / "data" / "input")
     output_folder = str(script_dir / "data" / "output")
-    config_file = str(PROJECT_ROOT / "config.json")
+    config_file = str(project_root / "config.json")
     
     # Создаем папку для вывода, если её нет
     os.makedirs(output_folder, exist_ok=True)

@@ -15,18 +15,13 @@ import json
 import sys
 from pathlib import Path
 
-# Project root = parent of the examples/ directory
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
-# Add src/ to sys.path so smart_chunker package is importable
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
-
 from smart_chunker.doc_struct_splitter import DocStructSplitter
 
 # ---------------------------------------------------------------------------
 # Paths — data lives inside examples/ so the script is self-contained
 # ---------------------------------------------------------------------------
 SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
 INPUT_DIR = SCRIPT_DIR / "data" / "input"
 OUTPUT_DIR = SCRIPT_DIR / "data" / "output"
 CONFIG_PATH = str(PROJECT_ROOT / "config.json")
