@@ -1,0 +1,5 @@
+Пакет docx2python не установлен
+Пакет unstructured не установлен
+SpaCy не установлен. Установите: pip install spacy && python -m spacy download ru_core_news_sm. Используется fallback regex.
+1.1: '1.1. Sub\nText.'
+2: '2. Second'

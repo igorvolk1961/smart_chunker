@@ -357,7 +357,13 @@ class SectionChunker:
         if table_id is not None:
             return "table"
         
-        if is_complete and section.content.strip() == section.title.strip():
+        # Проверяем, что content содержит только заголовок (с номером или без)
+        content_stripped = section.content.strip()
+        is_title_only = (
+            content_stripped == section.title.strip()
+            or content_stripped == f"{section.number}. {section.title}".strip()
+        )
+        if is_complete and is_title_only:
             # Проверяем, есть ли в заголовке глаголы
             if self.verb_detector is not None:
                 has_verb = self.verb_detector.contains_verb(section.title)

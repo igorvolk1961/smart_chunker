@@ -346,7 +346,7 @@ class HierarchyParser:
                         number=synth_number,
                         title=title,
                         level=parent.level + 1,
-                        content=title,
+                        content=f"{synth_number}. {title}",
                         parent=parent
                     )
                     parent.children.append(new_section)
@@ -698,7 +698,7 @@ class HierarchyParser:
             number=number,
             title=title,
             level=level,
-            content=title
+            content=f"{number}. {title}"
         )
     
     def _extract_title(self, line: str, number: str) -> str:
