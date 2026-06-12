@@ -244,15 +244,15 @@ class TableProcessor:
 
         try:
             analysis = self.analyze_docx_table_structure(docx_table)
-            row_attribute_rows = analysis["row_attribute_rows"]
-            column_attribute_columns = analysis["column_attribute_columns"]
+            column_attribute_rows = analysis["column_attribute_rows"]
+            row_attribute_columns = analysis["row_attribute_columns"]
             global_attrs_by_row = analysis["global_attrs_by_row"]
 
             # Группируем факты по строкам (items)
             items: List[Dict[str, Any]] = []
             
             for row_idx in range(docx_table.rows):
-                if row_idx in row_attribute_rows:
+                if row_idx in column_attribute_rows:
                     continue
                 
                 # Собираем факты для текущей строки
@@ -260,9 +260,9 @@ class TableProcessor:
                 item_name: Optional[str] = None
                 
                 # Определяем item_name из колонки-атрибута строки
-                # Ищем в колонках-атрибутах строки (column_attribute_columns) справа налево
+                # Ищем в колонках-атрибутах строки (row_attribute_columns) справа налево
                 # item_name обычно находится в последней колонке-атрибуте строки
-                for col_idx in sorted(column_attribute_columns, reverse=True):
+                for col_idx in sorted(row_attribute_columns, reverse=True):
                     cell = grid[row_idx][col_idx]
                     if cell and cell.text and cell.text.strip():
                         item_name = cell.text.strip()
@@ -272,7 +272,7 @@ class TableProcessor:
                 # (для случаев, когда нет колонок-атрибутов)
                 if not item_name:
                     for col_idx in range(docx_table.cols):
-                        if col_idx in column_attribute_columns:
+                        if col_idx in row_attribute_columns:
                             continue
                         cell = grid[row_idx][col_idx]
                         if cell and cell.row == row_idx and cell.col == col_idx:
@@ -288,7 +288,7 @@ class TableProcessor:
                 
                 # Собираем факты для всех колонок данных этой строки
                 for col_idx in range(docx_table.cols):
-                    if col_idx in column_attribute_columns:
+                    if col_idx in row_attribute_columns:
                         continue
                     cell = grid[row_idx][col_idx]
                     if not cell or cell.row != row_idx or cell.col != col_idx:
@@ -305,12 +305,12 @@ class TableProcessor:
                     attributes.extend(global_attrs_by_row.get(row_idx, []))
                     attributes.extend(
                         self.collect_column_header_chain(
-                            grid, row_idx, col_idx, row_attribute_rows
+                            grid, row_idx, col_idx, column_attribute_rows
                         )
                     )
                     # Собираем заголовки строк из колонок-атрибутов (но исключаем item_name)
                     row_header_chain = self.collect_row_header_chain(
-                        grid, row_idx, col_idx, column_attribute_columns
+                        grid, row_idx, col_idx, row_attribute_columns
                     )
                     # Исключаем item_name из цепочки заголовков строк
                     for attr in row_header_chain:
@@ -319,12 +319,12 @@ class TableProcessor:
                     
                     attributes.extend(
                         self.collect_attribute_row_values(
-                            grid, row_idx, col_idx, row_attribute_rows
+                            grid, row_idx, col_idx, column_attribute_rows
                         )
                     )
                     attributes.extend(
                         self.collect_attribute_column_values(
-                            grid, row_idx, col_idx, column_attribute_columns
+                            grid, row_idx, col_idx, row_attribute_columns
                         )
                     )
 
@@ -363,23 +363,20 @@ class TableProcessor:
         except Exception as e:
             raise TableConversionError(f"Ошибка конвертации таблицы: {e}") from e
     
-    def docx_table_to_simple_json(self, docx_table: ParsedDocxTable, table_name: str) -> str:
+    def docx_table_to_simple_markdown(self, docx_table: ParsedDocxTable, table_name: str) -> str:
         """
-        Конвертация плоской таблицы (без объединенных ячеек) в упрощенный JSON формат
-        Использует структуру с items, но facts представлен как объект (ключ - название колонки, значение - значение ячейки)
+        Конвертация плоской таблицы (без объединенных ячеек) в Markdown таблицу
         
         Args:
             docx_table: Распарсенная таблица
             table_name: Название таблицы
             
         Returns:
-            JSON строка с описанием таблицы в упрощенном формате
+            Markdown строка с таблицей
             
         Raises:
             TableConversionError: Если не удалось конвертировать таблицу
         """
-        import json
-        
         if not docx_table:
             raise TableConversionError("Таблица не может быть None")
         
@@ -389,93 +386,57 @@ class TableProcessor:
 
         try:
             analysis = self.analyze_docx_table_structure(docx_table)
-            row_attribute_rows = analysis["row_attribute_rows"]
-            column_attribute_columns = analysis["column_attribute_columns"]
+            column_attribute_rows = analysis["column_attribute_rows"]
+            row_attribute_columns = analysis["row_attribute_columns"]
 
             # Определяем названия колонок из заголовков
-            # Для простых таблиц (без объединенных ячеек) просто берем первую строку как заголовки
             column_names: Dict[int, str] = {}
-            header_row_idx = 0
-            if row_attribute_rows:
-                # Если есть строки-атрибуты, используем первую из них как заголовки
-                header_row_idx = min(row_attribute_rows)
-            
-            for col_idx in range(docx_table.cols):
-                if col_idx in column_attribute_columns:
-                    continue
-                cell = grid[header_row_idx][col_idx]
-                if cell and cell.text and cell.text.strip():
-                    column_names[col_idx] = cell.text.strip()
-                else:
-                    # Если заголовок пустой, используем номер колонки
+            if column_attribute_rows:
+                # Если есть строки-заголовки колонок, используем первую из них
+                header_row_idx = min(column_attribute_rows)
+                for col_idx in range(docx_table.cols):
+                    cell = grid[header_row_idx][col_idx]
+                    if cell and cell.text and cell.text.strip():
+                        column_names[col_idx] = cell.text.strip()
+                    else:
+                        column_names[col_idx] = f"Колонка {col_idx + 1}"
+            else:
+                # Если нет строк-заголовков (например, таблица из 2 колонок),
+                # используем обобщённые названия колонок
+                for col_idx in range(docx_table.cols):
                     column_names[col_idx] = f"Колонка {col_idx + 1}"
 
-            # Группируем факты по строкам (items)
-            items: List[Dict[str, Any]] = []
+            # Строим Markdown таблицу
+            # Заголовок
+            header_cells = [self._escape_markdown_cell(column_names[c]) for c in range(docx_table.cols)]
+            header = "| " + " | ".join(header_cells) + " |"
             
+            # Разделитель
+            separator = "| " + " | ".join(["---"] * docx_table.cols) + " |"
+            
+            # Строки данных
+            rows: List[str] = []
             for row_idx in range(docx_table.rows):
-                if row_idx in row_attribute_rows:
+                if row_idx in column_attribute_rows:
                     continue
                 
-                # Определяем item_name из колонки-атрибута строки
-                item_name: Optional[str] = None
-                for col_idx in sorted(column_attribute_columns, reverse=True):
-                    cell = grid[row_idx][col_idx]
-                    if cell and cell.text and cell.text.strip():
-                        item_name = cell.text.strip()
-                        break
-                
-                # Если не нашли в колонках-атрибутах, ищем в первой колонке данных строки
-                if not item_name:
-                    for col_idx in range(docx_table.cols):
-                        if col_idx in column_attribute_columns:
-                            continue
-                        cell = grid[row_idx][col_idx]
-                        if cell and cell.row == row_idx and cell.col == col_idx:
-                            if cell.text and cell.text.strip():
-                                item_name = cell.text.strip()
-                                break
-                        if item_name:
-                            break
-                
-                # Если item_name не найден, пропускаем строку
-                if not item_name:
-                    continue
-                
-                # Собираем факты как объект (ключ - название колонки, значение - значение ячейки)
-                facts: Dict[str, str] = {}
-                
+                row_cells: List[str] = []
                 for col_idx in range(docx_table.cols):
-                    if col_idx in column_attribute_columns:
-                        continue
                     cell = grid[row_idx][col_idx]
-                    if not cell or cell.row != row_idx or cell.col != col_idx:
-                        continue
-                    
-                    cell_text = cell.text.strip() if cell.text else ""
-                    column_name = column_names.get(col_idx, f"Колонка {col_idx + 1}")
-                    
-                    # Добавляем факт в объект
-                    if cell_text:
-                        facts[column_name] = cell_text
+                    if cell and cell.row == row_idx and cell.col == col_idx:
+                        cell_text = cell.text.strip() if cell.text else ""
+                    else:
+                        cell_text = ""
+                    row_cells.append(self._escape_markdown_cell(cell_text))
                 
-                # Добавляем item только если есть факты
-                if facts:
-                    items.append({
-                        "item_name": item_name,
-                        "row": row_idx + 1,  # row начинается с 1
-                        "facts": facts  # Объект вместо массива
-                    })
-
+                rows.append("| " + " | ".join(row_cells) + " |")
+            
             if not table_name:
                 raise TableConversionError("Название таблицы не может быть пустым")
-
-            table_data = {
-                "table_name": table_name,
-                "items": items,
-            }
-            json_str = json.dumps(table_data, ensure_ascii=False, indent=2)
-            return f"```json\n{json_str}\n```"
+            
+            # Собираем результат
+            table_str = f"# {table_name}\n\n{header}\n{separator}\n" + "\n".join(rows)
+            return self._normalize_whitespace(table_str)
         except Exception as e:
             raise TableConversionError(f"Ошибка конвертации таблицы: {e}") from e
     
@@ -499,7 +460,7 @@ class TableProcessor:
         if self.has_merged_cells(docx_table):
             return self._docx_table_to_complex_json(docx_table, table_name)
         else:
-            return self.docx_table_to_simple_json(docx_table, table_name)
+            return self.docx_table_to_simple_markdown(docx_table, table_name)
     
     def docx_table_to_chunks(
         self, 
@@ -563,15 +524,15 @@ class TableProcessor:
 
         try:
             analysis = self.analyze_docx_table_structure(docx_table)
-            row_attribute_rows = analysis["row_attribute_rows"]
-            column_attribute_columns = analysis["column_attribute_columns"]
+            column_attribute_rows = analysis["column_attribute_rows"]
+            row_attribute_columns = analysis["row_attribute_columns"]
             global_attrs_by_row = analysis["global_attrs_by_row"]
 
             # Группируем факты по строкам (items) - используем ту же логику, что и в _docx_table_to_complex_json
             items: List[Dict[str, Any]] = []
             
             for row_idx in range(docx_table.rows):
-                if row_idx in row_attribute_rows:
+                if row_idx in column_attribute_rows:
                     continue
                 
                 # Собираем факты для текущей строки
@@ -579,9 +540,9 @@ class TableProcessor:
                 item_name: Optional[str] = None
                 
                 # Определяем item_name из колонки-атрибута строки
-                # Ищем в колонках-атрибутах строки (column_attribute_columns) справа налево
+                # Ищем в колонках-атрибутах строки (row_attribute_columns) справа налево
                 # item_name обычно находится в последней колонке-атрибуте строки
-                for col_idx in sorted(column_attribute_columns, reverse=True):
+                for col_idx in sorted(row_attribute_columns, reverse=True):
                     cell = grid[row_idx][col_idx]
                     if cell and cell.text and cell.text.strip():
                         item_name = cell.text.strip()
@@ -591,7 +552,7 @@ class TableProcessor:
                 # (для случаев, когда нет колонок-атрибутов)
                 if not item_name:
                     for col_idx in range(docx_table.cols):
-                        if col_idx in column_attribute_columns:
+                        if col_idx in row_attribute_columns:
                             continue
                         cell = grid[row_idx][col_idx]
                         if cell and cell.row == row_idx and cell.col == col_idx:
@@ -607,7 +568,7 @@ class TableProcessor:
                 
                 # Собираем факты для всех колонок данных этой строки
                 for col_idx in range(docx_table.cols):
-                    if col_idx in column_attribute_columns:
+                    if col_idx in row_attribute_columns:
                         continue
                     cell = grid[row_idx][col_idx]
                     if not cell or cell.row != row_idx or cell.col != col_idx:
@@ -624,12 +585,12 @@ class TableProcessor:
                     attributes.extend(global_attrs_by_row.get(row_idx, []))
                     attributes.extend(
                         self.collect_column_header_chain(
-                            grid, row_idx, col_idx, row_attribute_rows
+                            grid, row_idx, col_idx, column_attribute_rows
                         )
                     )
                     # Собираем заголовки строк из колонок-атрибутов (но исключаем item_name)
                     row_header_chain = self.collect_row_header_chain(
-                        grid, row_idx, col_idx, column_attribute_columns
+                        grid, row_idx, col_idx, row_attribute_columns
                     )
                     # Исключаем item_name из цепочки заголовков строк
                     for attr in row_header_chain:
@@ -638,12 +599,12 @@ class TableProcessor:
                     
                     attributes.extend(
                         self.collect_attribute_row_values(
-                            grid, row_idx, col_idx, row_attribute_rows
+                            grid, row_idx, col_idx, column_attribute_rows
                         )
                     )
                     attributes.extend(
                         self.collect_attribute_column_values(
-                            grid, row_idx, col_idx, column_attribute_columns
+                            grid, row_idx, col_idx, row_attribute_columns
                         )
                     )
 
@@ -690,7 +651,7 @@ class TableProcessor:
         chunk_overlap_size: int = 0
     ) -> List[str]:
         """
-        Конвертация плоской таблицы (без объединенных ячеек) в список чанков (упрощенный формат)
+        Конвертация плоской таблицы (без объединенных ячеек) в список Markdown чанков
         
         Args:
             docx_table: Распарсенная таблица
@@ -699,7 +660,7 @@ class TableProcessor:
             chunk_overlap_size: Размер перекрытия в символах
             
         Returns:
-            Список JSON строк с чанками таблицы в упрощенном формате
+            Список Markdown строк с чанками таблицы
             
         Raises:
             TableConversionError: Если не удалось конвертировать таблицу
@@ -714,92 +675,36 @@ class TableProcessor:
 
         try:
             analysis = self.analyze_docx_table_structure(docx_table)
-            row_attribute_rows = analysis["row_attribute_rows"]
-            column_attribute_columns = analysis["column_attribute_columns"]
+            column_attribute_rows = analysis["column_attribute_rows"]
+            row_attribute_columns = analysis["row_attribute_columns"]
 
             # Определяем названия колонок из заголовков
-            # Для простых таблиц (без объединенных ячеек) просто берем первую строку как заголовки
             column_names: Dict[int, str] = {}
-            header_row_idx = 0
-            if row_attribute_rows:
-                # Если есть строки-атрибуты, используем первую из них как заголовки
-                header_row_idx = min(row_attribute_rows)
-            
-            for col_idx in range(docx_table.cols):
-                if col_idx in column_attribute_columns:
-                    continue
-                cell = grid[header_row_idx][col_idx]
-                if cell and cell.text and cell.text.strip():
-                    column_names[col_idx] = cell.text.strip()
-                else:
-                    # Если заголовок пустой, используем номер колонки
-                    column_names[col_idx] = f"Колонка {col_idx + 1}"
-
-            # Группируем факты по строкам (items)
-            items: List[Dict[str, Any]] = []
-            
-            for row_idx in range(docx_table.rows):
-                if row_idx in row_attribute_rows:
-                    continue
-                
-                # Определяем item_name из колонки-атрибута строки
-                item_name: Optional[str] = None
-                for col_idx in sorted(column_attribute_columns, reverse=True):
-                    cell = grid[row_idx][col_idx]
-                    if cell and cell.text and cell.text.strip():
-                        item_name = cell.text.strip()
-                        break
-                
-                # Если не нашли в колонках-атрибутах, ищем в первой колонке данных строки
-                if not item_name:
-                    for col_idx in range(docx_table.cols):
-                        if col_idx in column_attribute_columns:
-                            continue
-                        cell = grid[row_idx][col_idx]
-                        if cell and cell.row == row_idx and cell.col == col_idx:
-                            if cell.text and cell.text.strip():
-                                item_name = cell.text.strip()
-                                break
-                        if item_name:
-                            break
-                
-                # Если item_name не найден, пропускаем строку
-                if not item_name:
-                    continue
-                
-                # Собираем факты как объект (ключ - название колонки, значение - значение ячейки)
-                facts: Dict[str, str] = {}
-                
+            if column_attribute_rows:
+                # Если есть строки-заголовки колонок, используем первую из них
+                header_row_idx = min(column_attribute_rows)
                 for col_idx in range(docx_table.cols):
-                    if col_idx in column_attribute_columns:
-                        continue
-                    cell = grid[row_idx][col_idx]
-                    if not cell or cell.row != row_idx or cell.col != col_idx:
-                        continue
-                    
-                    cell_text = cell.text.strip() if cell.text else ""
-                    column_name = column_names.get(col_idx, f"Колонка {col_idx + 1}")
-                    
-                    # Добавляем факт в объект
-                    if cell_text:
-                        facts[column_name] = cell_text
-                
-                # Добавляем item только если есть факты
-                if facts:
-                    items.append({
-                        "item_name": item_name,
-                        "row": row_idx + 1,  # row начинается с 1
-                        "facts": facts  # Объект вместо массива
-                    })
+                    cell = grid[header_row_idx][col_idx]
+                    if cell and cell.text and cell.text.strip():
+                        column_names[col_idx] = cell.text.strip()
+                    else:
+                        column_names[col_idx] = f"Колонка {col_idx + 1}"
+            else:
+                # Если нет строк-заголовков (например, таблица из 2 колонок),
+                # используем обобщённые названия колонок
+                for col_idx in range(docx_table.cols):
+                    column_names[col_idx] = f"Колонка {col_idx + 1}"
 
             if not table_name:
                 raise TableConversionError("Название таблицы не может быть пустым")
 
-            # Нормализуем пробелы в названии таблицы перед чанкованием
             table_name = self._normalize_whitespace(table_name)
             
-            # Чанкуем items целиком (используем упрощенную версию чанкования для простого формата)
-            chunks = self._chunk_table_items_simple(items, table_name, max_chunk_size, chunk_overlap_size)
+            # Строим Markdown таблицу и чанкуем по строкам
+            chunks = self._chunk_table_markdown(
+                grid, column_names, column_attribute_rows,
+                table_name, max_chunk_size
+            )
             return chunks
         except Exception as e:
             raise TableConversionError(f"Ошибка конвертации таблицы: {e}") from e
@@ -918,130 +823,82 @@ class TableProcessor:
         
         return chunks
     
-    def _chunk_table_items_simple(
-        self, 
-        items: List[Dict[str, Any]], 
-        table_name: str, 
+    def _chunk_table_markdown(
+        self,
+        grid: List[List[Optional[DocxTableCell]]],
+        column_names: Dict[int, str],
+        column_attribute_rows: set[int],
+        table_name: str,
         max_chunk_size: int,
-        chunk_overlap_size: int = 200
     ) -> List[str]:
         """
-        Разбивает items таблицы на чанки с учетом максимального размера (упрощенный формат)
-        В чанк попадает целое число элементов items. Для простого формата facts - это объект,
-        поэтому разбиение по facts внутри item не выполняется.
+        Разбивает Markdown таблицу на чанки по строкам.
+        Каждый чанк содержит заголовок таблицы и подмножество строк данных.
         
         Args:
-            items: Список items таблицы (в упрощенном формате с объектом facts)
+            grid: Сетка ячеек таблицы
+            column_names: Словарь {col_idx: имя_колонки}
+            column_attribute_rows: Множество индексов строк-заголовков колонок
             table_name: Название таблицы
             max_chunk_size: Максимальный размер чанка в символах
-            chunk_overlap_size: Размер перекрытия в символах (не используется для простого формата)
             
         Returns:
-            Список JSON строк с чанками в упрощенном формате
+            Список Markdown строк с чанками таблицы
         """
-        import json
+        # Строим строку заголовка Markdown
+        header_cells = []
+        for col_idx in sorted(column_names.keys()):
+            header_cells.append(self._escape_markdown_cell(column_names[col_idx]))
+        header = "| " + " | ".join(header_cells) + " |"
         
-        if not items:
-            # Если items нет, возвращаем один чанк с пустым списком
-            table_data = {
-                "table_name": table_name,
-                "items": [],
-            }
-            json_str = json.dumps(table_data, ensure_ascii=False)
-            chunk_content = f"```json\n{json_str}\n```"
-            # Нормализуем пробелы сразу после создания JSON
-            chunk_content = self._normalize_whitespace(chunk_content)
-            return [chunk_content]
+        # Строим разделитель
+        separator = "| " + " | ".join(["---"] * len(column_names)) + " |"
         
-        chunks: List[str] = []
-        current_chunk_items: List[Dict[str, Any]] = []
-        current_size = 0
+        # Строим заголовочную часть (одинаковая для всех чанков)
+        header_block = f"# {table_name}\n\n{header}\n{separator}"
         
-        # Размер названия таблицы (включая структуру JSON)
-        table_name_overhead = len(f'{{"table_name": "{table_name}", "items": []}}')
-        
-        for item in items:
-            # Нормализуем пробелы в item_name и facts перед обработкой
-            item_name = self._normalize_whitespace(item.get("item_name", ""))
-            row = item.get("row", 0)
-            facts = item.get("facts", {})
-            
-            # Нормализуем пробелы в facts (объект)
-            normalized_facts = {}
-            for key, value in facts.items():
-                normalized_key = self._normalize_whitespace(str(key))
-                normalized_value = self._normalize_whitespace(str(value))
-                normalized_facts[normalized_key] = normalized_value
-            
-            # Создаем нормализованный item
-            normalized_item = {
-                "item_name": item_name,
-                "row": row,
-                "facts": normalized_facts
-            }
-            
-            # Оцениваем размер item в JSON
-            item_json = json.dumps(normalized_item, ensure_ascii=False)
-            item_size = len(item_json) + 2  # +2 для запятой и переноса строки
-            
-            # Если размер одного item превышает max_chunk_size, добавляем его отдельно
-            # (для простого формата не разбиваем item на части)
-            if item_size + table_name_overhead > max_chunk_size:
-                # Сохраняем текущий чанк, если есть items
-                if current_chunk_items:
-                    table_data = {
-                        "table_name": table_name,
-                        "items": current_chunk_items,
-                    }
-                    json_str = json.dumps(table_data, ensure_ascii=False)
-                    chunk_content = f"```json\n{json_str}\n```"
-                    # Нормализуем пробелы сразу после создания JSON
-                    chunk_content = self._normalize_whitespace(chunk_content)
-                    chunks.append(chunk_content)
-                    current_chunk_items = []
-                    current_size = 0
-                
-                # Добавляем большой item отдельным чанком
-                table_data = {
-                    "table_name": table_name,
-                    "items": [normalized_item],
-                }
-                json_str = json.dumps(table_data, ensure_ascii=False)
-                chunk_content = f"```json\n{json_str}\n```"
-                # Нормализуем пробелы сразу после создания JSON
-                chunk_content = self._normalize_whitespace(chunk_content)
-                chunks.append(chunk_content)
+        # Собираем строки данных
+        data_rows: List[str] = []
+        for row_idx in range(len(grid)):
+            if row_idx in column_attribute_rows:
                 continue
             
-            # Если добавление item превысит лимит, сохраняем текущий чанк
-            if current_chunk_items and current_size + item_size + table_name_overhead > max_chunk_size:
-                table_data = {
-                    "table_name": table_name,
-                    "items": current_chunk_items,
-                }
-                json_str = json.dumps(table_data, ensure_ascii=False)
-                chunk_content = f"```json\n{json_str}\n```"
-                # Нормализуем пробелы сразу после создания JSON
-                chunk_content = self._normalize_whitespace(chunk_content)
-                chunks.append(chunk_content)
-                current_chunk_items = []
-                current_size = 0
-            
-            # Добавляем item в текущий чанк
-            current_chunk_items.append(normalized_item)
-            current_size += item_size
+            row_cells = []
+            for col_idx in sorted(column_names.keys()):
+                cell = grid[row_idx][col_idx]
+                cell_text = cell.text.strip() if cell and cell.text else ""
+                row_cells.append(self._escape_markdown_cell(cell_text))
+            data_rows.append("| " + " | ".join(row_cells) + " |")
         
-        # Добавляем последний чанк, если есть items
-        if current_chunk_items:
-            table_data = {
-                "table_name": table_name,
-                "items": current_chunk_items,
-            }
-            json_str = json.dumps(table_data, ensure_ascii=False)
-            chunk_content = f"```json\n{json_str}\n```"
-            # Нормализуем пробелы сразу после создания JSON
-            chunk_content = self._normalize_whitespace(chunk_content)
-            chunks.append(chunk_content)
+        if not data_rows:
+            # Если нет строк данных, возвращаем один чанк с заголовком
+            return [header_block]
+        
+        # Чанкуем строки данных
+        chunks: List[str] = []
+        start_idx = 0
+        
+        while start_idx < len(data_rows):
+            # Пробуем добавить строки пока не превысим лимит
+            end_idx = start_idx
+            while end_idx < len(data_rows):
+                chunk_rows = data_rows[start_idx:end_idx + 1]
+                chunk_text = header_block + "\n" + "\n".join(chunk_rows)
+                chunk_size = len(chunk_text)
+                
+                if chunk_size > max_chunk_size:
+                    break
+                end_idx += 1
+            
+            # Если не удалось добавить ни одной строки, добавляем хотя бы одну
+            if end_idx == start_idx:
+                end_idx = start_idx + 1
+            
+            chunk_rows = data_rows[start_idx:end_idx]
+            chunk_text = header_block + "\n" + "\n".join(chunk_rows)
+            chunks.append(chunk_text)
+            
+            start_idx = end_idx
         
         return chunks
     
@@ -1058,6 +915,22 @@ class TableProcessor:
         """
         from .utils import normalize_whitespace
         return normalize_whitespace(text)
+    
+    def _escape_markdown_cell(self, text: str) -> str:
+        """
+        Экранирует специальные символы в ячейке Markdown таблицы
+        
+        Args:
+            text: Текст ячейки
+            
+        Returns:
+            Текст с экранированными символами
+        """
+        # Экранируем вертикальную черту (pipe), которая может сломать таблицу
+        text = text.replace("|", "\\|")
+        # Заменяем переносы строк внутри ячейки на пробелы
+        text = text.replace("\n", " ").replace("\r", " ")
+        return text
     
     def _split_item(
         self,
@@ -1192,10 +1065,18 @@ class TableProcessor:
         Returns:
             Словарь с информацией о структуре таблицы
         """
-        row_attribute_rows: set[int] = set()
-        column_attribute_columns: set[int] = set()
+        column_attribute_rows: set[int] = set()
+        row_attribute_columns: set[int] = set()
         global_attrs_by_row: Dict[int, List[str]] = {}
         active_global_attrs: List[str] = []
+
+        # --- Pass 1: Определяем column_attribute_rows (строки с заголовками колонок) ---
+        
+        if table.cols > 2:
+            # Если колонок больше 2, первая строка всегда содержит заголовки колонок
+            column_attribute_rows.add(0)
+        # Если колонок 2 или меньше, первая строка уже содержит данные,
+        # и column_attribute_rows остаётся пустым
 
         for row_idx in range(table.rows):
             unique_cells = self.unique_row_cells(table.grid[row_idx])
@@ -1223,9 +1104,15 @@ class TableProcessor:
                 c.colspan > 1 and c.colspan < table.cols for c in unique_cells
             )
             if has_partial_merge and not full_row_merge and row_idx + 1 < table.rows:
-                row_attribute_rows.add(row_idx + 1)
+                column_attribute_rows.add(row_idx + 1)
 
-        for col_idx in range(table.cols - 1):
+        # --- Pass 2: Определяем row_attribute_columns (колонки с заголовками строк) ---
+        
+        # Первая колонка всегда содержит заголовки строк (для таблиц с 2 колонками
+        # это единственная колонка-атрибут, для таблиц с >2 колонок — тоже)
+        row_attribute_columns.add(0)
+
+        for col_idx in range(table.cols):
             for row_idx in range(table.rows):
                 cell = table.grid[row_idx][col_idx]
                 if (
@@ -1234,12 +1121,12 @@ class TableProcessor:
                     and cell.row == row_idx
                     and cell.rowspan > 1
                 ):
-                    column_attribute_columns.add(col_idx + 1)
+                    row_attribute_columns.add(col_idx)
                     break
 
         return {
-            "row_attribute_rows": row_attribute_rows,
-            "column_attribute_columns": column_attribute_columns,
+            "column_attribute_rows": column_attribute_rows,
+            "row_attribute_columns": row_attribute_columns,
             "global_attrs_by_row": global_attrs_by_row,
         }
 
@@ -1248,7 +1135,7 @@ class TableProcessor:
         grid: List[List[Optional[DocxTableCell]]],
         row_idx: int,
         col_idx: int,
-        row_attribute_rows: set[int],
+        column_attribute_rows: set[int],
     ) -> List[str]:
         """
         Собирает цепочку заголовков столбцов сверху вниз
@@ -1258,7 +1145,7 @@ class TableProcessor:
             grid: Сетка ячеек таблицы
             row_idx: Индекс строки
             col_idx: Индекс колонки
-            row_attribute_rows: Множество индексов строк-атрибутов
+            column_attribute_rows: Множество индексов строк, содержащих заголовки колонок
             
         Returns:
             Список атрибутов столбцов
@@ -1271,9 +1158,9 @@ class TableProcessor:
                 continue
             # Собираем только ячейки-атрибуты:
             # - объединенные по горизонтали (colspan > 1)
-            # - или находящиеся в строках-атрибутах
+            # - или находящиеся в строках-атрибутах (column_attribute_rows)
             # НЕ собираем обычные ячейки-значения
-            if cell.colspan == 1 and r not in row_attribute_rows:
+            if cell.colspan == 1 and r not in column_attribute_rows:
                 continue
             key = (cell.row, cell.col)
             if key in seen:
@@ -1287,7 +1174,7 @@ class TableProcessor:
         grid: List[List[Optional[DocxTableCell]]],
         row_idx: int,
         col_idx: int,
-        column_attribute_columns: set[int],
+        row_attribute_columns: set[int],
     ) -> List[str]:
         """
         Собирает цепочку заголовков строк слева направо
@@ -1297,7 +1184,7 @@ class TableProcessor:
             grid: Сетка ячеек таблицы
             row_idx: Индекс строки
             col_idx: Индекс колонки
-            column_attribute_columns: Множество индексов колонок-атрибутов
+            row_attribute_columns: Множество индексов колонок, содержащих заголовки строк
             
         Returns:
             Список атрибутов строк
@@ -1310,9 +1197,9 @@ class TableProcessor:
                 continue
             # Собираем только ячейки-атрибуты:
             # - объединенные по вертикали (rowspan > 1)
-            # - или находящиеся в колонках-атрибутах
+            # - или находящиеся в колонках-атрибутах (row_attribute_columns)
             # НЕ собираем обычные ячейки-значения
-            if cell.rowspan == 1 and c not in column_attribute_columns:
+            if cell.rowspan == 1 and c not in row_attribute_columns:
                 continue
             key = (cell.row, cell.col)
             if key not in seen:
@@ -1325,22 +1212,22 @@ class TableProcessor:
         grid: List[List[Optional[DocxTableCell]]],
         row_idx: int,
         col_idx: int,
-        attribute_rows: set[int],
+        column_attribute_rows: set[int],
     ) -> List[str]:
         """
-        Собирает значения из строк-атрибутов
+        Собирает значения из строк-атрибутов (строк с заголовками колонок)
         
         Args:
             grid: Сетка ячеек таблицы
             row_idx: Индекс строки
             col_idx: Индекс колонки
-            attribute_rows: Множество индексов строк-атрибутов
+            column_attribute_rows: Множество индексов строк, содержащих заголовки колонок
             
         Returns:
             Список значений атрибутов из строк
         """
         for r in range(row_idx - 1, -1, -1):
-            if r in attribute_rows:
+            if r in column_attribute_rows:
                 cell = grid[r][col_idx]
                 if cell and cell.text:
                     return [cell.text]
@@ -1352,22 +1239,22 @@ class TableProcessor:
         grid: List[List[Optional[DocxTableCell]]],
         row_idx: int,
         col_idx: int,
-        attribute_columns: set[int],
+        row_attribute_columns: set[int],
     ) -> List[str]:
         """
-        Собирает значения из колонок-атрибутов
+        Собирает значения из колонок-атрибутов (колонок с заголовками строк)
         
         Args:
             grid: Сетка ячеек таблицы
             row_idx: Индекс строки
             col_idx: Индекс колонки
-            attribute_columns: Множество индексов колонок-атрибутов
+            row_attribute_columns: Множество индексов колонок, содержащих заголовки строк
             
         Returns:
             Список значений атрибутов из колонок
         """
         for c in range(col_idx - 1, -1, -1):
-            if c in attribute_columns:
+            if c in row_attribute_columns:
                 cell = grid[row_idx][c]
                 if cell and cell.text:
                     return [cell.text]

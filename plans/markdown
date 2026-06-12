@@ -1,0 +1,161 @@
+# Plan: Convert Simple Table Output from JSON to Markdown Table Format
+
+## Goal
+
+For **simple tables** (without merged cells), change the output format from JSON-wrapped-in-markdown to native **Markdown tables**. This improves embedding quality and LLM readability.
+
+## Current Output (Simple Table)
+
+```json
+{
+  "table_name": "План строительства",
+  "items": [
+    {
+      "item_name": "Фундамент",
+      "row": 1,
+      "facts": {
+        "Срок": "30 дней",
+        "Ответственный": "Иванов"
+      }
+    },
+    {
+      "item_name": "Стены",
+      "row": 2,
+      "facts": {
+        "Срок": "45 дней",
+        "Ответственный": "Петров"
+      }
+    }
+  ]
+}
+```
+
+## Target Output (Simple Table)
+
+```markdown
+# План строительства
+| Наименование | Срок | Ответственный |
+|---|---|---|
+| Фундамент | 30 дней | Иванов |
+| Стены | 45 дней | Петров |
+```
+
+## Key Design Decisions
+
+1. **`item_name` becomes the first column** — it's the row header (from `row_attribute_columns[0]`)
+2. **`facts` keys become column headers** — they come from `column_names` (which are derived from `column_attribute_rows`)
+3. **Table name becomes a Markdown heading** (`# table_name`)
+4. **No JSON wrapping** — pure Markdown table syntax
+5. **Chunking still works** — split by rows, each chunk is a self-contained Markdown table with header
+
+## Files to Modify
+
+Only [`src/smart_chunker/table_processor.py`](src/smart_chunker/table_processor.py)
+
+## Methods to Change
+
+### 1. [`docx_table_to_simple_json()`](src/smart_chunker/table_processor.py:366)
+- Rename to `docx_table_to_simple_markdown()` (or keep name but change output)
+- Instead of building JSON `items` list, build a Markdown table string
+- Algorithm:
+  ```
+  1. Determine column_names from header row (same as now)
+  2. Build header: `| item_name_col | col2_name | col3_name | ...`
+  3. Build separator: `|---|---|---|...`
+  4. For each data row (skipping column_attribute_rows):
+     - Build row: `| item_name | value1 | value2 | ...`
+  5. Return: `# table_name\n\nheader\nseparator\nrows`
+  ```
+
+### 2. [`_docx_table_to_simple_chunks()`](src/smart_chunker/table_processor.py:685)
+- Instead of building `items` list and passing to `_chunk_table_items_simple`, build Markdown rows directly
+- Chunk by groups of rows, each chunk is a complete Markdown table with header
+
+### 3. [`_chunk_table_items_simple()`](src/smart_chunker/table_processor.py:921)
+- Replace entirely with `_chunk_table_markdown()` that works with Markdown rows
+- Or refactor: `_docx_table_to_simple_chunks` builds rows directly and chunks them
+
+### 4. Caller updates
+- [`docx_table_to_json()`](src/smart_chunker/table_processor.py:482) — calls `docx_table_to_simple_json`, update call
+- [`docx_table_to_chunks()`](src/smart_chunker/table_processor.py:504) — calls `_docx_table_to_simple_chunks`, update call
+
+## Detailed Algorithm for `docx_table_to_simple_markdown`
+
+```python
+def docx_table_to_simple_markdown(self, docx_table, table_name) -> str:
+    analysis = self.analyze_docx_table_structure(docx_table)
+    column_attribute_rows = analysis["column_attribute_rows"]
+    row_attribute_columns = analysis["row_attribute_columns"]
+    
+    # 1. Determine column names from header row
+    header_row_idx = 0
+    if column_attribute_rows:
+        header_row_idx = min(column_attribute_rows)
+    
+    # First column name = item_name column (from row_attribute_columns)
+    # For 2-col tables, first col is row header, so column name comes from header row cell[0]
+    column_names: Dict[int, str] = {}
+    for col_idx in range(docx_table.cols):
+        if col_idx in row_attribute_columns:
+            # This is a row header column — get its name from header row
+            cell = docx_table.grid[header_row_idx][col_idx]
+            column_names[col_idx] = cell.text.strip() if cell and cell.text else f"Колонка {col_idx + 1}"
+        else:
+            cell = docx_table.grid[header_row_idx][col_idx]
+            column_names[col_idx] = cell.text.strip() if cell and cell.text else f"Колонка {col_idx + 1}"
+    
+    # 2. Build header row
+    header_cells = [column_names.get(c, f"Колонка {c+1}") for c in range(docx_table.cols)]
+    header = "| " + " | ".join(header_cells) + " |"
+    
+    # 3. Build separator
+    separator = "|" + "|".join(["---"] * docx_table.cols) + "|"
+    
+    # 4. Build data rows
+    rows = []
+    for row_idx in range(docx_table.rows):
+        if row_idx in column_attribute_rows:
+            continue
+        
+        row_cells = []
+        for col_idx in range(docx_table.cols):
+            cell = docx_table.grid[row_idx][col_idx]
+            if cell and cell.row == row_idx and cell.col == col_idx:
+                row_cells.append(cell.text.strip() if cell.text else "")
+            else:
+                row_cells.append("")
+        
+        rows.append("| " + " | ".join(row_cells) + " |")
+    
+    # 5. Assemble
+    table_str = f"# {table_name}\n\n{header}\n{separator}\n" + "\n".join(rows)
+    return self._normalize_whitespace(table_str)
+```
+
+## Detailed Algorithm for `_docx_table_to_simple_chunks`
+
+Same logic but instead of returning one string, split rows into chunks:
+
+```python
+def _docx_table_to_simple_chunks(self, docx_table, table_name, max_chunk_size, chunk_overlap_size):
+    # Build header and separator (same as above)
+    # Build rows list (each row is a string)
+    # Chunk: group rows into chunks where each chunk = header + separator + rows_subset
+    # Each chunk must fit within max_chunk_size
+```
+
+## Edge Cases
+
+1. **Empty table** → return `# table_name\n\n*No data*`
+2. **Table with only header row** → return just the header
+3. **Cell text with pipes `|`** → escape as `\|` in Markdown
+4. **Cell text with newlines** → replace with space (already handled by `_normalize_whitespace`)
+5. **Wide tables** → chunking will split by rows, each chunk has full header
+
+## Execution Order
+
+1. Create `docx_table_to_simple_markdown()` method
+2. Update `docx_table_to_json()` to call it for simple tables
+3. Rewrite `_docx_table_to_simple_chunks()` to produce Markdown chunks
+4. Remove or replace `_chunk_table_items_simple()` 
+5. Test with sample data

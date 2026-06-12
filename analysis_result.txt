@@ -1,0 +1,31 @@
+Total chunks: 834
+Incomplete sections: 514
+Complete sections: 320
+Merged (num_merged_sections>0): 320
+
+=== SAMPLE INCOMPLETE CHUNKS ===
+  chunk_id=72f7624f-662... section_numbers=? char_count=772 num_merged=0 chunk_type=section_content
+  chunk_id=4b0caca2-62c... section_numbers=? char_count=772 num_merged=0 chunk_type=section_content
+  chunk_id=ea517b15-93d... section_numbers=? char_count=772 num_merged=0 chunk_type=section_content
+  chunk_id=6d820a81-cbc... section_numbers=? char_count=1348 num_merged=0 chunk_type=section_content
+  chunk_id=ab22cd63-7ce... section_numbers=? char_count=1348 num_merged=0 chunk_type=section_content
+  chunk_id=dd35b595-8f2... section_numbers=? char_count=1348 num_merged=0 chunk_type=section_content
+  chunk_id=56b9e924-bde... section_numbers=? char_count=1348 num_merged=0 chunk_type=section_content
+  chunk_id=c7db68cd-09f... section_numbers=? char_count=1348 num_merged=0 chunk_type=section_content
+  chunk_id=090f4918-d28... section_numbers=? char_count=1228 num_merged=0 chunk_type=section_content
+  chunk_id=464b5a8e-406... section_numbers=? char_count=1228 num_merged=0 chunk_type=section_content
+
+=== SAMPLE MERGED CHUNKS ===
+  chunk_id=db0ed177-c47... section_numbers=['1.2.1'] char_count=419 num_merged=1 chunk_type=section_content
+  chunk_id=e189399f-4f5... section_numbers=['1.2.3'] char_count=459 num_merged=1 chunk_type=section_content
+  chunk_id=1573a33f-aa4... section_numbers=['1.4.1'] char_count=465 num_merged=1 chunk_type=section_content
+  chunk_id=66a0c74f-676... section_numbers=['1.4.2'] char_count=375 num_merged=1 chunk_type=section_content
+  chunk_id=6ea707c6-f65... section_numbers=['1.5.2.1'] char_count=452 num_merged=1 chunk_type=section_content
+  chunk_id=1f4480ae-414... section_numbers=['1.5.2.2'] char_count=355 num_merged=1 chunk_type=section_content
+  chunk_id=b5dfaac2-6c4... section_numbers=['1.5.4.4'] char_count=485 num_merged=1 chunk_type=section_content
+  chunk_id=c3240cd2-262... section_numbers=['1.5.5.1'] char_count=369 num_merged=1 chunk_type=section_content
+  chunk_id=c2dc48c4-4cd... section_numbers=['1.5.5.2'] char_count=365 num_merged=1 chunk_type=section_content
+  chunk_id=9e0193e5-336... section_numbers=['1.5.5.3'] char_count=325 num_merged=1 chunk_type=section_content
+
+=== BASELINE OVERSIZED ===
+Baseline total: 968, incomplete: 517
